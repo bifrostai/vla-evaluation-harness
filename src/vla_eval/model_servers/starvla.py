@@ -44,6 +44,7 @@ from typing import Any
 
 import numpy as np
 
+from vla_eval.specs import GRIPPER_CLOSE_POS, IMAGE_RGB, LANGUAGE, RAW, DimSpec
 from vla_eval.types import Action, Observation
 
 from vla_eval.model_servers.base import SessionContext
@@ -291,6 +292,12 @@ class StarVLAModelServer(PredictModelServer):
 
     def get_observation_params(self) -> dict[str, Any]:
         return dict(self._observation_params)
+
+    def get_action_spec(self) -> dict[str, DimSpec]:
+        return {"gripper": GRIPPER_CLOSE_POS}
+
+    def get_observation_spec(self) -> dict[str, DimSpec]:
+        return {"image": IMAGE_RGB, "state": RAW, "language": LANGUAGE}
 
     def predict_batch(self, obs_batch: list[Observation], ctx_batch: list[SessionContext]) -> list[Action]:
         from PIL import Image as PILImage
