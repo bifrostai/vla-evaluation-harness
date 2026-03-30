@@ -19,14 +19,7 @@ from typing import Any
 import numpy as np
 
 from vla_eval.benchmarks.base import StepBenchmark, StepResult
-from vla_eval.specs import (
-    GRIPPER_CLOSE_NEG,
-    IMAGE_RGB,
-    LANGUAGE,
-    POSITION_DELTA,
-    ROTATION_EULER,
-    DimSpec,
-)
+from vla_eval.specs import GRIPPER_CLOSE_NEG, IMAGE_RGB, LANGUAGE, POSITION_DELTA, ROTATION_EULER, DimSpec
 from vla_eval.types import Action, EpisodeResult, Observation, Task
 
 # Prevent display issues in headless environments

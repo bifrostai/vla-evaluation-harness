@@ -24,14 +24,7 @@ from typing import Any
 
 import numpy as np
 
-from vla_eval.specs import (
-    GRIPPER_CLOSE_POS,
-    IMAGE_RGB,
-    LANGUAGE,
-    POSITION_DELTA,
-    ROTATION_AA,
-    DimSpec,
-)
+from vla_eval.specs import GRIPPER_CLOSE_POS, IMAGE_RGB, LANGUAGE, POSITION_DELTA, ROTATION_AA, DimSpec
 from vla_eval.model_servers.base import SessionContext
 from vla_eval.types import Action, Observation
 from vla_eval.model_servers.predict import PredictModelServer

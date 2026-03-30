@@ -23,12 +23,7 @@ from typing import Any
 import numpy as np
 
 from vla_eval.benchmarks.base import StepBenchmark, StepResult
-from vla_eval.specs import (
-    IMAGE_RGB,
-    LANGUAGE,
-    STATE_JOINT,
-    DimSpec,
-)
+from vla_eval.specs import IMAGE_RGB, LANGUAGE, STATE_JOINT, DimSpec
 from vla_eval.types import Action, EpisodeResult, Observation, Task
 
 logger = logging.getLogger(__name__)

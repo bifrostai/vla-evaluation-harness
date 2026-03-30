@@ -12,12 +12,7 @@ from typing import Any
 import numpy as np
 
 from vla_eval.benchmarks.base import StepBenchmark, StepResult
-from vla_eval.specs import (
-    IMAGE_RGB,
-    LANGUAGE,
-    RAW,
-    DimSpec,
-)
+from vla_eval.specs import IMAGE_RGB, LANGUAGE, RAW, DimSpec
 from vla_eval.types import Action, EpisodeResult, Observation, Task
 
 _DEFAULT_TASK_LIST = [
