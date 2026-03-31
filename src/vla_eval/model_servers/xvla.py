@@ -74,13 +74,16 @@ from vla_eval.model_servers.predict import PredictModelServer
 
 from vla_eval.rotation import (
     axisangle_to_matrix,
-    axisangle_to_rot6d_interleaved as _axisangle_to_rot6d,
-    euler_xyz_to_rot6d_interleaved as _euler_to_rot6d,
+    axisangle_to_rot6d_contiguous as _axisangle_to_rot6d_contig,
+    axisangle_to_rot6d_interleaved as _axisangle_to_rot6d_inter,
+    euler_xyz_to_rot6d_contiguous as _euler_to_rot6d_contig,
+    euler_xyz_to_rot6d_interleaved as _euler_to_rot6d_inter,
     matrix_to_euler_xyz,
     matrix_to_quat as _mat_to_quat,
     quat_to_axisangle as _quat_to_axisangle,
     quat_to_matrix as _quat_to_matrix,
-    rot6d_interleaved_to_matrix as _rot6d_to_matrix,
+    rot6d_contiguous_to_matrix as _rot6d_to_matrix_contig,
+    rot6d_interleaved_to_matrix as _rot6d_to_matrix_inter,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,6 +100,7 @@ class _XVLABenchmarkProfile:
     preserve_env_grippers: bool = False
     unflip_wrist: bool = False  # un-flip wrist image (benchmark sends it flipped)
     euler_state: bool = False  # True: state[3:6] is euler XYZ, not axis-angle
+    rot6d_convention: str = "interleaved"  # "interleaved" or "contiguous"
 
 
 _BENCHMARK_PROFILES: dict[str, _XVLABenchmarkProfile] = {
@@ -108,6 +112,7 @@ _BENCHMARK_PROFILES: dict[str, _XVLABenchmarkProfile] = {
         gripper_close_above=True,
         output_action_dim=7,
         unflip_wrist=True,
+        rot6d_convention="contiguous",
     ),
     "calvin": _XVLABenchmarkProfile(
         image_keys=("rgb_static", "rgb_gripper"),
@@ -225,13 +230,16 @@ def _default_predicted_proprio_dims(output_action_dim: int | None) -> int | None
     return 10 if output_action_dim is not None else None
 
 
-def _rot6d_to_axisangle(rot6d: np.ndarray) -> np.ndarray:
+def _rot6d_to_axisangle(rot6d: np.ndarray, rot6d_to_matrix=_rot6d_to_matrix_inter) -> np.ndarray:
     """6-D rotation → axis-angle (3-D)."""
-    return _quat_to_axisangle(_mat_to_quat(_rot6d_to_matrix(rot6d)))
+    return _quat_to_axisangle(_mat_to_quat(rot6d_to_matrix(rot6d)))
 
 
 def _convert_ee6d_to_7d(
-    actions: np.ndarray, gripper_threshold: float = 0.5, gripper_close_above: bool = True
+    actions: np.ndarray,
+    gripper_threshold: float = 0.5,
+    gripper_close_above: bool = True,
+    rot6d_to_matrix=_rot6d_to_matrix_inter,
 ) -> np.ndarray:
     """Convert X-VLA EE6D 20-D actions → 7-D ``[pos3, axisangle3, gripper]``.
 
@@ -248,7 +256,7 @@ def _convert_ee6d_to_7d(
     out = np.zeros((len(actions), 7), dtype=np.float32)
     for i in range(len(actions)):
         out[i, :3] = actions[i, :3]
-        out[i, 3:6] = _rot6d_to_axisangle(actions[i, 3:9])
+        out[i, 3:6] = _rot6d_to_axisangle(actions[i, 3:9], rot6d_to_matrix)
         # Gripper binarization using profile-configured threshold and direction
         sig = float(actions[i, 9])
         if gripper_close_above:
@@ -258,7 +266,13 @@ def _convert_ee6d_to_7d(
     return out[0] if single else out
 
 
-def _state_to_xvla_proprio(state: np.ndarray, dim: int = 20, euler_state: bool = False) -> np.ndarray:
+def _state_to_xvla_proprio(
+    state: np.ndarray,
+    dim: int = 20,
+    euler_state: bool = False,
+    axisangle_to_rot6d=_axisangle_to_rot6d_inter,
+    euler_to_rot6d=_euler_to_rot6d_inter,
+) -> np.ndarray:
     """Convert ``[pos3, axisangle3, gripper*]`` → X-VLA proprio (20-D).
 
     Matches the official eval format: ``[pos3, rot6d6, 0.0, zeros10]``.
@@ -268,9 +282,9 @@ def _state_to_xvla_proprio(state: np.ndarray, dim: int = 20, euler_state: bool =
     if len(state) >= 6:
         proprio[:3] = state[:3]
         if euler_state:
-            proprio[3:9] = _euler_to_rot6d(state[3:6])
+            proprio[3:9] = euler_to_rot6d(state[3:6])
         else:
-            proprio[3:9] = _axisangle_to_rot6d(state[3:6])
+            proprio[3:9] = axisangle_to_rot6d(state[3:6])
     return proprio
 
 
@@ -317,6 +331,15 @@ class XVLAModelServer(PredictModelServer):
         self._euler_state = profile.euler_state if profile is not None else False
         self._gripper_threshold = profile.gripper_threshold if profile is not None else 0.5
         self._gripper_close_above = profile.gripper_close_above if profile is not None else True
+        rot6d_conv = profile.rot6d_convention if profile is not None else "interleaved"
+        if rot6d_conv == "contiguous":
+            self._rot6d_to_matrix = _rot6d_to_matrix_contig
+            self._axisangle_to_rot6d = _axisangle_to_rot6d_contig
+            self._euler_to_rot6d = _euler_to_rot6d_contig
+        else:
+            self._rot6d_to_matrix = _rot6d_to_matrix_inter
+            self._axisangle_to_rot6d = _axisangle_to_rot6d_inter
+            self._euler_to_rot6d = _euler_to_rot6d_inter
         self._euler_offset: np.ndarray | None = None
         if euler_offset is not None:
             self._euler_offset = np.array([float(x) for x in euler_offset.split(",")], dtype=np.float32)
@@ -462,7 +485,13 @@ class XVLAModelServer(PredictModelServer):
                         proprio = torch.tensor(raw, device=device).unsqueeze(0)
                     else:
                         # Legacy 8D state [pos3, axisangle3, gripper2] — convert
-                        proprio_np = _state_to_xvla_proprio(raw, dim_proprio, euler_state=self._euler_state)
+                        proprio_np = _state_to_xvla_proprio(
+                            raw,
+                            dim_proprio,
+                            euler_state=self._euler_state,
+                            axisangle_to_rot6d=self._axisangle_to_rot6d,
+                            euler_to_rot6d=self._euler_to_rot6d,
+                        )
                         proprio = torch.tensor(proprio_np, device=device).unsqueeze(0)
                 else:
                     proprio = torch.zeros(1, dim_proprio, dtype=torch.float32, device=device)
@@ -485,7 +514,12 @@ class XVLAModelServer(PredictModelServer):
 
         # Convert EE6D 20-D → 7-D when requested
         if self.output_action_dim == 7 and raw_actions.shape[-1] == 20:
-            converted = _convert_ee6d_to_7d(raw_actions, self._gripper_threshold, self._gripper_close_above)
+            converted = _convert_ee6d_to_7d(
+                raw_actions,
+                self._gripper_threshold,
+                self._gripper_close_above,
+                self._rot6d_to_matrix,
+            )
             # Apply euler offset if configured (convert axis-angle → euler → +offset)
             if self._euler_offset is not None:
                 for i in range(len(converted)):

@@ -163,6 +163,11 @@ def axisangle_to_rot6d_contiguous(aa: np.ndarray) -> np.ndarray:
     return matrix_to_rot6d_contiguous(axisangle_to_matrix(aa)).astype(np.float32)
 
 
+def euler_xyz_to_rot6d_contiguous(euler: np.ndarray) -> np.ndarray:
+    """Extrinsic XYZ Euler → contiguous 6-D rotation."""
+    return matrix_to_rot6d_contiguous(euler_xyz_to_matrix(euler)).astype(np.float32)
+
+
 # ---------------------------------------------------------------------------
 # Euler XYZ ↔ matrix  (extrinsic XYZ, radians)
 # ---------------------------------------------------------------------------
