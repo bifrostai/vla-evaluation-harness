@@ -635,42 +635,44 @@ STATUS: Not yet evaluated (3 BLOCKERS)
 
 ## Pair 13: StarVLA Qwen3-OFT x RoboTwin 2.0 — Not yet evaluated
 
-STATUS: Not yet evaluated (multiple blockers)
+STATUS: Not yet evaluated (2 BLOCKERS)
 
 ### Config
 - Server config: not yet created (no StarVLA RoboTwin config in `configs/model_servers/starvla/`)
 - Benchmark config: `configs/robotwin_eval.yaml`
-- Official eval: `examples/Robotwin/README.md` in StarVLA repo
+- Official eval: [`examples/Robotwin/eval_files/model2robotwin_interface.py`](https://github.com/starVLA/starVLA/blob/starVLA/examples/Robotwin/eval_files/model2robotwin_interface.py)
+- Checkpoint: [`StarVLA/Qwen3-VL-OFT-Robotwin2`](https://huggingface.co/StarVLA/Qwen3-VL-OFT-Robotwin2) (50 demos/task) or [`StarVLA/Qwen3-VL-OFT-RoboTwin2-All`](https://huggingface.co/StarVLA/Qwen3-VL-OFT-RoboTwin2-All) (50+500 DR demos/task)
 
 ### Pipeline verification
 
 | Item | Official | Ours | Match? | Evidence |
 |------|----------|------|:------:|----------|
-| **Image cameras** | head + left + right (3 cameras) | head + left + right | Likely | Standard RoboTwin observation; benchmark.py:418-421 sends all 3 |
-| **Action dimension** | 14D (dual-arm joint positions) | 14D | Likely | StarVLA OFT trained with qpos actions for RoboTwin |
-| **Action type** | qpos | qpos | Likely | Matches DB-CogACT path (Protocol B still uses qpos eval) |
-| **Model server adaptation** | dual-arm 14D | single-arm 7D only | BLOCKER | starvla.py:331-332 handles 8D→7D state by averaging grippers: `state = np.concatenate([state[:6], [state[6:8].mean()]])`. Action output at :347 applies single-gripper conversion: `actions[:, 6] = 1.0 - 2.0 * actions[:, 6]`. No 14D dual-arm support |
-| **Config** | RoboTwin-specific | not created | BLOCKER | 14 StarVLA configs exist in `configs/model_servers/starvla/` (libero, simpler, calvin variants), none for RoboTwin |
-| **Checkpoint** | Qwen3-VL-OFT RoboTwin | not identified | BLOCKER | No HuggingFace path for StarVLA RoboTwin checkpoint found |
-| **chunk_size** | unknown | TBD | — | |
+| **Image cameras** | head + left + right (3 cameras) | head + left + right | Yes | Official `model2robotwin_interface.py`: extracts `head_camera`, `left_camera`, `right_camera` from obs. benchmark.py:418-421 sends all 3 |
+| **State/proprio format** | 14D joint state from `obs["joint_action"]["vector"]` | 14D joint state | Yes | Official sends `state = observation["joint_action"]["vector"]`. benchmark.py:427 sends same key `"joint_state": np.array(raw_obs["joint_action"]["vector"])` |
+| **Action dimension** | 14D qpos (with reordering) | 14D qpos | Partial | Official outputs 14D then reorders: `action[[0,1,2,3,4,5,12,6,7,8,9,10,11,13]]` (swaps gripper positions). benchmark.py:404-408 expects 14D without reordering |
+| **Action type to env** | `TASK_ENV.take_action(action)` (default = qpos) | `action_type="qpos"` | Yes | Both use qpos joint position actions |
+| **Action mode** | absolute (from `deploy_policy.yml`) | absolute | Yes | `action_mode: absolute` in StarVLA config |
+| **Gripper handling** | indices 12,13 are discrete (continuous_mask=False) | raw pass-through | Partial | Official treats dims 12,13 as discrete gripper values. Reordering swaps them to positions 6,13. Our benchmark passes raw 14D to env |
+| **Normalization** | `min_max`, `unnorm_key: "new_embodiment"` | TBD | — | StarVLA model server uses `unnorm_key` for action denormalization |
+| **Model server adaptation** | 14D dual-arm output | single-arm 7D only | BLOCKER | starvla.py:331-332 averages grippers to 7D: `state[:6] + mean(state[6:8])`. :347 applies single-gripper conversion `1.0 - 2.0 * actions[:, 6]`. No 14D dual-arm support |
+| **Config** | RoboTwin-specific | not created | BLOCKER | 14 configs in `configs/model_servers/starvla/`, none for RoboTwin |
+| **chunk_size** | from deploy config | TBD | — | |
+| **test_num** | 10 per task | 1 (smoke test) | Config only | robotwin_eval.yaml:19 |
 
 ### Discrepancies
 
 1. **Model server not adapted for dual-arm** — BLOCKER
-   - starvla.py assumes 7D single-arm action output and 8D state
-   - RoboTwin needs 14D dual-arm qpos with per-arm gripper handling
-   - Fix: significant model server adaptation needed (14D action output, dual gripper conversion, 14D+ state handling)
+   - starvla.py assumes single-arm: 8D state → 7D (averaging grippers at :331-332), 7D action output with single gripper conversion at :347
+   - RoboTwin needs 14D state input, 14D action output with per-arm gripper handling + reordering `[0,1,2,3,4,5,12,6,7,8,9,10,11,13]`
+   - Fix: add RoboTwin mode to starvla.py — skip state averaging, output 14D, apply action reordering, discrete gripper handling for dims 12/13
 
 2. **Config not created** — BLOCKER
-   - No StarVLA RoboTwin config exists
-
-3. **Checkpoint not identified** — BLOCKER
-   - HuggingFace path for the RoboTwin checkpoint is unknown
+   - Need to create `configs/model_servers/starvla/robotwin.yaml` with `model_path: StarVLA/Qwen3-VL-OFT-Robotwin2`, `unnorm_key: "new_embodiment"`, and RoboTwin-specific parameters
 
 ### Notes
-- Reported: 50.4% Easy (48 tasks, 50 demos/task). With domain randomization: 88.2% Easy, 88.3% Hard.
-- Training protocol (multi-task joint) differs from DB-CogACT/X-VLA (single-task), but eval procedure is the same — evaluate per task independently.
-- Lowest priority of the 3 RoboTwin pairs due to 3 blockers + unclear checkpoint.
+- Reported: 50.4% Easy (48 tasks, 50 demos/task). With domain randomization (All checkpoint): 88.2% Easy, 88.3% Hard.
+- Eval procedure is per-task (same as DB-CogACT/X-VLA) — only training is multi-task joint.
+- Action reordering `[0,1,2,3,4,5,12,6,7,8,9,10,11,13]` swaps gripper from model output position to env expected position. Must be implemented in model server.
 
 ---
 
@@ -690,7 +692,7 @@ STATUS: Not yet evaluated (multiple blockers)
 | 10 | GR00T x SimplerEnv | 25% (57.1%) | Not reproduced | 3 (no state, bridge rotation, max_steps) |
 | 11 | DB-CogACT x RoboTwin 2.0 | — (58.5%) | Not yet evaluated | 0 code-level (config: test_num, expert_check) |
 | 12 | X-VLA x RoboTwin 2.0 | — (70.0%/39.0%) | Not yet evaluated | 3 BLOCKERS (action_type ee vs qpos, state source, action conversion) |
-| 13 | StarVLA x RoboTwin 2.0 | — (50.4%) | Not yet evaluated | Protocol mismatch (B vs A), config needed |
+| 13 | StarVLA x RoboTwin 2.0 | — (50.4%) | Not yet evaluated | 2 BLOCKERS (model server single-arm only, config needed) |
 
 ---
 
