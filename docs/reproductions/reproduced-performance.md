@@ -10,7 +10,7 @@ Models listed in publication order.
 | Pi0.5 (Oct 2024) | **97.7%** (96.9%) Reproduced | — | — | — | — |
 | DB-CogACT (Nov 2024) | **94.7%** (94.9%) Reproduced | **4.02** (4.06) Reproduced | **70.8%** (69.5%) Reproduced | — | — |
 | OFT (Feb 2025) | 94.0% spatial only (~96.8%) | — | — | — | — |
-| GR00T N1.6 (Mar 2025) | **94.9%** (97.0%) Approximate | — | WIP (62.1%) | — | — |
+| GR00T N1.6 (Mar 2025) | **94.9%** (97.0%) Approximate | — | **30.2%** (62.1%) Partial | — | — |
 | X-VLA (Oct 2025) | **97.4%** (98.1%) Reproduced | **4.30** (4.43) Reproduced | WIP (95.8%) | — (88.3%) | — (70.0%/39.0%) |
 
 Format: **reproduced** (reported) verdict. — = not yet evaluated.
@@ -47,12 +47,13 @@ Raw result JSONs: [`data/`](data/).
 | Model | Checkpoint | Spoon | Carrot | Block | Eggplant | **Avg** | Reported | Verdict |
 |-------|-----------|:-----:|:------:|:-----:|:--------:|:-------:|:--------:|:-------:|
 | [DB-CogACT](../../configs/model_servers/db_cogact/simpler.yaml) | `Dexmal/simpler-db-cogact` | 100.0% | 50.0% | 33.3% | 100.0% | **70.8%** | 69.5% | Reproduced (seed 0) |
-| [GR00T N1.6](../../configs/model_servers/groot/simpler_widowx.yaml) | `nvidia/GR00T-N1.6-bridge` | — | — | — | — | **WIP** | 62.1%† | WIP‡ |
+| [GR00T N1.6](../../configs/model_servers/groot/simpler_widowx.yaml) | `nvidia/GR00T-N1.6-bridge` | 70.8% | 45.8% | 0.0% | 4.2% | **30.2%** | 62.1%† | Partial (−26.9pp)‡ |
 | [X-VLA](../../configs/model_servers/xvla/simpler_widowx.yaml) | `2toINF/X-VLA-WidowX` | — | — | — | — | **WIP** | 95.8% | WIP |
 
 † GR00T reported on non-standard 7-task set; 4-task subset avg = 57.1%.
-‡ GR00T SimplerEnv uses base-relative EE pose computed from `tcp_pose` (vs NVIDIA's `ee_gripper_link`).
-  Gap likely from link difference + gripper closedness calculation. CALVIN: no checkpoint available.
+‡ GR00T SimplerEnv uses base-relative EE pose + `accumulate_success` (OR-accumulated, matching
+  official eval). Evaluated without rgb_overlay. PutSpoon (70.8%) exceeds official (64.5%);
+  PutEggplant (4.2%) suffers without overlay (sink camera env). CALVIN: no checkpoint available.
   Results: [`data/groot-simpler/`](data/groot-simpler/).
 
 ## SimplerEnv — Google Robot VM

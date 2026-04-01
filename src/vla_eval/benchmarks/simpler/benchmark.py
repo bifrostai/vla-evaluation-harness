@@ -70,12 +70,15 @@ class SimplerEnvBenchmark(StepBenchmark):
         control_mode: str | None = None,
         image_size: list[int] | tuple[int, int] | None = None,
         pass_rotation_raw: bool = False,
+        accumulate_success: bool = False,
     ) -> None:
         super().__init__()
         self.seed = seed
         self.send_state = send_state
         self._control_mode_override = control_mode
         self._pass_rotation_raw = pass_rotation_raw
+        self._accumulate_success = accumulate_success
+        self._success_seen = False
         self.image_size = tuple(image_size) if image_size is not None else None
         self.env_name = env_name
         self.scene_name = scene_name
@@ -147,6 +150,7 @@ class SimplerEnvBenchmark(StepBenchmark):
         )
 
         # Close previous env — new env per episode (matches reference)
+        self._success_seen = False
         if self._env is not None:
             self._env.close()
 
@@ -218,6 +222,8 @@ class SimplerEnvBenchmark(StepBenchmark):
         obs, reward, done, truncated, info = self._env.step(env_action)
 
         info["truncated"] = truncated
+        if self._accumulate_success and done:
+            self._success_seen = True
         return StepResult(obs=obs, reward=reward, done=done, info=info)
 
     def make_obs(self, raw_obs: Any, task: Task) -> Observation:
@@ -281,8 +287,11 @@ class SimplerEnvBenchmark(StepBenchmark):
         return step_result.info.get("truncated", False)
 
     def get_step_result(self, step_result: StepResult) -> EpisodeResult:
-        # Success = terminated on the final step (evaluated at truncation).
-        return {"success": step_result.done}
+        # Default: success = terminated on the final step (at truncation).
+        # accumulate_success: success if terminated at any point during the episode
+        # (matches GR00T official eval which OR-accumulates success).
+        success = self._success_seen if self._accumulate_success else step_result.done
+        return {"success": success}
 
     def get_metadata(self) -> dict[str, Any]:
         return {
