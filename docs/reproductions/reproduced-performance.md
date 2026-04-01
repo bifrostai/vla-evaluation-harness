@@ -11,7 +11,7 @@ Models listed in publication order.
 | DB-CogACT (Nov 2024) | **94.7%** (94.9%) Reproduced | **4.02** (4.06) Reproduced | **70.8%** (69.5%) Reproduced | — | — |
 | OFT (Feb 2025) | 94.0% spatial only (~96.8%) | — | — | — | — |
 | GR00T N1.6 (Mar 2025) | **94.9%** (97.0%) Approximate | — | **36.5%** (62.1%) Approximate | — | — |
-| X-VLA (Oct 2025) | **97.8%** (98.1%) Reproduced | **4.30** (4.43) Reproduced | **69.8%** (95.8%) Partial | — (88.3%) | — (70.0%/39.0%) |
+| X-VLA (Oct 2025) | **97.4%** (98.1%) Reproduced | **4.30** (4.43) Reproduced | **69.8%** (95.8%) Partial | — (88.3%) | — (70.0%/39.0%) |
 
 Format: **reproduced** (reported) verdict. — = not yet evaluated.
 
@@ -27,7 +27,7 @@ Format: **reproduced** (reported) verdict. — = not yet evaluated.
 | [DB-CogACT](../../configs/model_servers/db_cogact/libero.yaml) | 93.8% | 98.4% | 96.0% | 90.8% | **94.7%** | 94.9% | Reproduced |
 | [OFT (joint)](../../configs/model_servers/oft/libero_joint.yaml) | 94.0% | — | — | — | **—** | ~96.8% | Spatial only (−3.6pp) |
 | [GR00T N1.6](../../configs/model_servers/groot/libero.yaml) | 96.6% | 98.4% | 96.8% | 87.8% | **94.9%** | 97.0% | Approximate (−2.1pp) |
-| [X-VLA](../../configs/model_servers/xvla/libero.yaml) | 97.8% | — | — | — | **97.8%** | 98.1% | Reproduced (spatial) |
+| [X-VLA](../../configs/model_servers/xvla/libero.yaml) | 97.8% | 98.6% | 98.0% | 95.2% | **97.4%** | 98.1% | Reproduced |
 
 Raw result JSONs: [`data/`](data/).
 
