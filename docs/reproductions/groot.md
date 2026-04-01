@@ -8,7 +8,7 @@ NVIDIA's generalist robot foundation model. [GitHub](https://github.com/NVIDIA/I
 | Benchmark | Reproduced | Reported | Verdict |
 |-----------|:----------:|:--------:|:-------:|
 | LIBERO | **94.9%** | 97.0% | Approximate (−2.1pp) |
-| SimplerEnv WidowX | **37.5%** | 57.1%† | Partial (−19.6pp)‡ |
+| SimplerEnv WidowX | **36.5%** | 57.1%† | Partial (−20.6pp)‡ |
 | SimplerEnv Google Robot | — | 67.7%†† | Not yet evaluated |
 | CALVIN | — | — | No checkpoint |
 
@@ -53,19 +53,20 @@ Status: **Partial** (several pipeline gaps identified; some fixed, two remaining
 Reported (4-task subset): Spoon 64.5%, Carrot 65.5%, Eggplant 93.0%, Block 5.5% = **57.1% avg**.
 (Full 7-task avg = 62.1%, but includes non-standard open/close drawer tasks.)
 
-Reproduced (4-task, no overlay, 504 steps): Spoon **75.0%**, Carrot **75.0%**, Block 0.0%, Eggplant 0.0% = **37.5% avg**.
+Reproduced (4-task, prepackaged_config, 504 steps): Spoon **66.7%**, Carrot **54.2%**, Block **4.2%**, Eggplant **20.8%** = **36.5% avg**.
 
 Pipeline audit — all critical items fixed:
 1. **State/proprio not sent** (CRITICAL) → **FIXED**: benchmark computes base-relative EE pose from `base_pose + tcp_pose`. Bridge rotation applied in groot.py.
 2. **Bridge rotation correction** (CRITICAL) → **FIXED**: `default_rot = [[0,0,1],[0,1,0],[-1,0,0]]` applied to state euler conversion.
 3. **accumulate_success** (MEDIUM) → **FIXED**: OR-accumulate success across episode, matching official `rollout_policy.py`.
 4. **max_episode_steps** (HIGH) → **FIXED**: 504 steps (matching official `MultiStepConfig` default).
-5. **chunk_size** → `chunk_size=1` matching official SimplerEnv README `n_action_steps=1`. (`chunk_size=8` tested but worse — 27% vs 75%).
-6. **Gripper polarity** → Resolved: GR00T bridge [0,1] maps correctly without `invert_gripper`.
+5. **prepackaged_config** (HIGH) → **FIXED**: `prepackaged_config=True` matches `simpler_env.make()` defaults (camera, lighting, scene). Without it, image diff=33 pixels causing 0% on sink tasks.
+6. **chunk_size** → `chunk_size=1` matching official SimplerEnv README `n_action_steps=1`.
+7. **Gripper polarity** → Resolved: GR00T bridge [0,1] maps correctly without `invert_gripper`.
 
-Remaining gap: PutEggplant 0% (official 93%) — sink camera env without rgb_overlay. CALVIN: no checkpoint.
+Remaining gap: PutEggplant 20.8% (official 93%) — likely NVIDIA's ManiSkill2 fork (`youliangtan/ManiSkill2_real2sim`) has additional sink camera/init customizations not captured by `prepackaged_config`. CALVIN: no checkpoint.
 
-‡ PutSpoon (75.0%) and PutCarrot (75.0%) both exceed official (64.5%, 65.5%). PutEggplant suffers without overlay (sink camera env).
+‡ PutSpoon (66.7%) exceeds official (64.5%). StackGreen (4.2%) near-matches official (5.5%). PutEggplant gap from NVIDIA's custom ManiSkill2 fork.
 
 ### SimplerEnv — Google Robot
 

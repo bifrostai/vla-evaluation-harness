@@ -167,6 +167,7 @@ class GR00TModelServer(PredictModelServer):
             "send_state": True,
             "pass_rotation_raw": True,
             "accumulate_success": True,
+            "prepackaged_config": True,
         }
 
     def get_action_spec(self) -> dict[str, DimSpec]:

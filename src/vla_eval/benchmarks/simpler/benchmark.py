@@ -71,6 +71,7 @@ class SimplerEnvBenchmark(StepBenchmark):
         image_size: list[int] | tuple[int, int] | None = None,
         pass_rotation_raw: bool = False,
         accumulate_success: bool = False,
+        prepackaged_config: bool = False,
     ) -> None:
         super().__init__()
         self.seed = seed
@@ -78,6 +79,7 @@ class SimplerEnvBenchmark(StepBenchmark):
         self._control_mode_override = control_mode
         self._pass_rotation_raw = pass_rotation_raw
         self._accumulate_success = accumulate_success
+        self._prepackaged_config = prepackaged_config
         self._success_seen = False
         self.image_size = tuple(image_size) if image_size is not None else None
         self.env_name = env_name
@@ -154,19 +156,26 @@ class SimplerEnvBenchmark(StepBenchmark):
         if self._env is not None:
             self._env.close()
 
-        control_mode = self._control_mode_override or get_robot_control_mode(self.robot, "vla")
-        build_kwargs: dict[str, Any] = dict(
-            obs_mode="rgbd",
-            robot=self.robot,
-            scene_name=task.get("scene_name", self.scene_name),
-            control_freq=self.control_freq,
-            sim_freq=self.sim_freq,
-            max_episode_steps=self.max_episode_steps,
-            control_mode=control_mode,
-            camera_cfgs={"add_segmentation": True},
-        )
-        if self.rgb_overlay_path is not None:
-            build_kwargs["rgb_overlay_path"] = self.rgb_overlay_path
+        if self._prepackaged_config:
+            build_kwargs: dict[str, Any] = dict(
+                obs_mode="rgbd",
+                prepackaged_config=True,
+                max_episode_steps=self.max_episode_steps,
+            )
+        else:
+            control_mode = self._control_mode_override or get_robot_control_mode(self.robot, "vla")
+            build_kwargs = dict(
+                obs_mode="rgbd",
+                robot=self.robot,
+                scene_name=task.get("scene_name", self.scene_name),
+                control_freq=self.control_freq,
+                sim_freq=self.sim_freq,
+                max_episode_steps=self.max_episode_steps,
+                control_mode=control_mode,
+                camera_cfgs={"add_segmentation": True},
+            )
+            if self.rgb_overlay_path is not None:
+                build_kwargs["rgb_overlay_path"] = self.rgb_overlay_path
 
         self._env = build_maniskill2_env(
             task.get("env_name", self.env_name),
