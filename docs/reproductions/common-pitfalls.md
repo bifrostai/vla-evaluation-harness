@@ -138,6 +138,60 @@ These pitfalls were identified during systematic pipeline verification (cross-be
 - Detection: Check if `predict()` returns a chunk but only `actions[0]` is consumed.
 - Fix: Return `np.array(actions, dtype=np.float32)` for the full chunk.
 
+## 9. Model Server Environment
+
+**Inline script dependency missing**
+- What: Model servers run via `uv run --script` with inline PEP 723 dependencies. If a package is used at runtime but not listed (e.g., `opencv-python` for image resize), the import fails silently — the server starts but every inference returns an error.
+- Impact: 0% success with no obvious crash (server stays running, episodes just fail).
+- Detection: Check server logs for `ModuleNotFoundError` or `ImportError`.
+- Fix: Add every runtime import to the inline `# dependencies = [...]` block. Test by starting the server and sending one observation.
+
+**Ensembler shared state across sessions**
+- What: Action ensembling (e.g., adaptive ensemble with sliding window) uses a single instance shared across all concurrent WebSocket sessions. When multiple benchmark shards connect in parallel, one session's `episode_start` resets another session's ensemble history mid-episode.
+- Impact: starVLA: 0% with 4 parallel shards, ~20% with 1 sequential shard (same code).
+- Detection: Run 1 shard — if it works but 4 parallel shards don't, ensemble state is shared.
+- Fix: Store ensemblers per `session_id` (dict keyed by `ctx.session_id`), create on `episode_start`, remove on `episode_end`.
+
+## 10. Environment Forks and Versions
+
+**NVIDIA internal SimplerEnv/ManiSkill2 fork**
+- What: NVIDIA's GR00T evaluation uses an internal fork (`squarefk/SimplerEnv` + `youliangtan/ManiSkill2_real2sim`) that adds `eef_pos` proprioception (EE pose in base frame + gripper width) to the observation dict. The official SimplerEnv does not have this key. Without it, the model receives incorrect state (robot base pose instead of EE-in-base-frame).
+- Impact: GR00T WidowX: ~0% without eef_pos → ~30-55% with eef_pos. Google Robot: same.
+- Detection: Check if `obs["agent"]["eef_pos"]` exists. If not, the eef_pos patch is missing.
+- Fix: Patch ManiSkill2's `base_agent.py` (add eef_pos computation), `widowx.py` (add `ee_link`/`ee_pose`/`get_gripper_closedness`), and `googlerobot.py` (same). Use try/except so unpatched robots are unaffected.
+
+**Gripper closedness formula**
+- What: Different robot agents compute gripper closedness differently. WidowX uses joint limits from `get_qlimits()` (range `[0.015, 0.037]`). A naive formula dividing by `2 * 0.037` (assuming range `[0, 0.037]`) produces up to 0.4 error.
+- Impact: Wrong gripper state on every timestep — model misinterprets gripper open/close.
+- Detection: Compare `get_gripper_closedness()` output against the NVIDIA fork's reference.
+- Fix: Use `get_qlimits()` to get actual joint range; compute closedness as `(limit_high - qpos) / (limit_high - limit_low)`.
+
+**Quaternion convention (wxyz vs xyzw)**
+- What: ManiSkill2 and `transforms3d` use wxyz quaternion order. Most other libraries (scipy, our `rotation.py`) use xyzw. Inline reordering (`q[1], q[2], q[3], q[0]`) is error-prone — easy to swap indices.
+- Impact: Wrong rotation → corrupted state or actions. Subtle: may partially work for near-identity rotations.
+- Detection: Print quaternion values and verify the w component is in the expected position.
+- Fix: Use explicit helper functions (`quat_wxyz_to_xyzw`, `quat_xyzw_to_wxyz`) instead of inline index reordering.
+
+## 11. Evaluation Protocol
+
+**chunk_size / n_action_steps mismatch**
+- What: Model predicts N-step action chunks (e.g., 8 or 16). The evaluation protocol may use only the first action (`n_action_steps=1`) and re-infer every step, or execute all N actions before re-inferring. Using the wrong setting drastically changes behavior.
+- Impact: GR00T WidowX: 0% with `chunk_size=16` → ~30% with `chunk_size=1`. GR00T LIBERO: opposite — 90% with 1-step → 96% with 16-step.
+- Detection: Check the official eval's `--n_action_steps` or equivalent parameter. Compare with your `chunk_size`.
+- Fix: Match the official protocol exactly. Note: the optimal setting differs per benchmark (SimplerEnv uses 1, LIBERO uses full chunk).
+
+**Sticky gripper (Google Robot)**
+- What: Google Robot tasks require a "sticky gripper" mechanism — when the gripper action changes significantly (>0.5 relative change), the action is repeated for 15 consecutive steps. Without this, the gripper doesn't close/open properly because the planner interpolates too slowly.
+- Impact: Google Robot: 0% on manipulation tasks without sticky gripper.
+- Detection: If pick tasks fail despite the arm reaching the object, check gripper behavior.
+- Fix: Implement sticky gripper with 15-step repeat and relative gripper action conversion.
+
+**Random vs deterministic episode placement**
+- What: Some benchmarks use `episode_id` for deterministic object placement, others use random placement via `env.reset()` without options. The same model can score very differently depending on placement distribution.
+- Impact: GR00T eggplant_in_basket: 50% deterministic vs 4% random (same model, same code).
+- Detection: Check if the official eval uses `--obj-episode-range` (deterministic) or vectorized env auto-reset (random).
+- Fix: Match the official protocol. Note that even with random placement, large episode counts (200+) are needed for stable estimates.
+
 ---
 
 ## Quick Checklist
@@ -147,8 +201,15 @@ Before claiming a reproduction, verify these for each model×benchmark pair:
 - [ ] Action dimension matches (model output → benchmark input)
 - [ ] Action mode (absolute vs delta) matches
 - [ ] Rotation convention (euler/axis-angle/quaternion/rot6d layout) matches
+- [ ] Quaternion convention (wxyz vs xyzw) is correct at every conversion point
 - [ ] Gripper threshold, polarity, and binarization direction match
+- [ ] Sticky gripper implemented if required (Google Robot: 15-step repeat)
 - [ ] State/proprio is sent with correct key, format, and source
+- [ ] eef_pos available if model requires it (may need env patch)
 - [ ] Episode budget (max_steps) matches official eval
+- [ ] chunk_size / n_action_steps matches official eval protocol
 - [ ] Image preprocessing (resize, interpolation, flip) matches
 - [ ] Episode termination logic matches (terminated vs truncated semantics)
+- [ ] Ensembler state is per-session (not shared across parallel shards)
+- [ ] All runtime imports listed in inline script dependencies
+- [ ] Env fork matches official (check for internal patches not in public repo)
