@@ -10,6 +10,7 @@ No formal paper. Results from README + assets.
 | LIBERO | — | 96.6% (Qwen3-OFT) | Not yet evaluated |
 | CALVIN ABC→D | — | 3.79 (Q2.5-GR00T) | Not yet evaluated |
 | SimplerEnv WidowX | **66.7%** (Qwen3-GR00T) | 65.3% | Reproduced |
+| SimplerEnv WidowX | **64.6%** (Q2.5-FAST) | 58.6% | Reproduced |
 | SimplerEnv WidowX | 20.8% (Qwen3-OFT) | 42.7% | Not reproduced (env issue) |
 | RoboTwin | — | 50.4% (Qwen3-OFT) | Not yet evaluated |
 
@@ -33,6 +34,25 @@ No formal paper. Results from README + assets.
 | Spoon | 83.3% | 75.0% |
 | Eggplant | 100% | 100% |
 | **Average** | **66.7%** | **65.3%** |
+
+#### Q2.5-FAST (Reproduced)
+
+| | |
+|---|---|
+| **Checkpoint** | `StarVLA/Qwen-FAST-Bridge-RT-1` (official) |
+| **Server config** | [`configs/model_servers/starvla/fast_simpler.yaml`](../../configs/model_servers/starvla/fast_simpler.yaml) |
+| **Benchmark config** | [`configs/simpler_all_tasks.yaml`](../../configs/simpler_all_tasks.yaml) |
+| **Results** | [`data/starvla-fast/`](data/starvla-fast/) |
+
+4 tasks x 24 episodes. Adaptive ensemble (horizon=7, alpha=0.1). Euler-to-axisangle conversion.
+
+| Task | Reproduced | Reported |
+|------|:----------:|:--------:|
+| Stack | 37.5% | 36.5% |
+| Carrot | 37.5% | 41.7% |
+| Spoon | 95.8% | 71.9% |
+| Eggplant | 87.5% | 84.4% |
+| **Average** | **64.6%** | **58.6%** |
 
 #### Qwen3-OFT (Not reproduced)
 
@@ -86,3 +106,4 @@ Possible causes: wrong checkpoint (Bridge+RT-1 instead of LIBERO-finetuned?).
 ## Data
 
 - [`data/starvla/`](data/starvla/) — Qwen3-GR00T SimplerEnv results + OFT investigation
+- [`data/starvla-fast/`](data/starvla-fast/) — Q2.5-FAST SimplerEnv results

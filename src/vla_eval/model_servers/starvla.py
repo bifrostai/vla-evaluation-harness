@@ -7,6 +7,7 @@
 #     "torchvision>=0.17",
 #     "transformers>=4.40,<5",
 #     "pillow>=9.0",
+#     "opencv-python>=4.0",
 #     "numpy>=1.24",
 #     "accelerate",
 #     "kernels>=0.11.0",
@@ -45,13 +46,15 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import cv2
 import numpy as np
-
-from vla_eval.specs import GRIPPER_CLOSE_POS, IMAGE_RGB, LANGUAGE, RAW, DimSpec
-from vla_eval.types import Action, Observation
+from PIL import Image as PILImage
+from transforms3d.euler import euler2axangle
 
 from vla_eval.model_servers.base import SessionContext
 from vla_eval.model_servers.predict import PredictModelServer
+from vla_eval.specs import GRIPPER_CLOSE_POS, IMAGE_RGB, LANGUAGE, RAW, DimSpec
+from vla_eval.types import Action, Observation
 
 logger = logging.getLogger(__name__)
 
@@ -415,9 +418,6 @@ class StarVLAModelServer(PredictModelServer):
         return np.where(mask, 0.5 * (normalized + 1) * (high - low) + low, normalized)
 
     def predict_batch(self, obs_batch: list[Observation], ctx_batch: list[SessionContext]) -> list[Action]:
-        import cv2
-        from PIL import Image as PILImage
-
         self._load_model()
         assert self._model is not None
 
@@ -471,8 +471,6 @@ class StarVLAModelServer(PredictModelServer):
 
             # Euler → axis-angle conversion (required by SimplerEnv controller)
             if self.euler_to_axisangle and actions.shape[-1] >= 6:
-                from transforms3d.euler import euler2axangle
-
                 for t in range(actions.shape[0]):
                     axis, angle = euler2axangle(actions[t, 3], actions[t, 4], actions[t, 5])
                     actions[t, 3:6] = axis * angle
