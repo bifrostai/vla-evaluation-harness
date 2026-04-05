@@ -35,10 +35,6 @@ SE = SimplerEnv. SE GR = Google Robot VM. MS2 = ManiSkill2.
 
 Per-codebase details: [openvla](openvla.md) · [openpi](openpi.md) · [cogact](cogact.md) · [oft](oft.md) · [groot](groot.md) · [rtc](rtc.md) · [xvla](xvla.md) · [dexbotic](dexbotic.md) · [starvla](starvla.md)
 
-## Benchmarks with no model coverage yet
-
-Integrated in vla-eval: RLBench, RoboCasa, Mikasa, RoboMMe, RoboCerebra, LIBERO-90, LIBERO-Pro.
-
 ## Verdict Criteria
 
 Binomial 95% CI for 500 episodes/suite (±1.9pp at p=0.95):
