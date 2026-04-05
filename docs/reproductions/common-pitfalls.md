@@ -25,7 +25,9 @@ Pitfalls identified during systematic pipeline verification of 5+ VLA codebases 
 | **Episodes** | max_steps too low | 0% | X-VLA: 120 vs 1200 needed |
 | | **No standard termination semantics** | **Scores not comparable** | truncation vs accumulate |
 | | Random vs deterministic placement | 40pp+ | GR00T eggplant: 50% vs 4% |
-| **Environment** | Internal fork differences | 0-80pp | NVIDIA eef_pos, X-VLA absolute EE |
+| **Image preprocessing** | Missing center crop at eval | ~3pp | OpenVLA: trained with random crop aug |
+| **Environment** | env.seed mismatch | Unknown | OpenVLA uses env.seed(0) not seed(7) |
+| | Internal fork differences | 0-80pp | NVIDIA eef_pos, X-VLA absolute EE |
 
 ---
 
@@ -116,7 +118,19 @@ Pitfalls identified during systematic pipeline verification of 5+ VLA codebases 
 **Random vs deterministic episode placement**
 - GR00T eggplant: 50% with deterministic placement vs 4% with random. Match the official protocol and use enough episodes (200+) for random.
 
-## 6. Environment / Infra
+## 6. Image Preprocessing
+
+**Center crop** (OpenVLA, OpenVLA-OFT)
+- Fine-tuned checkpoints trained with random crop augmentation (`crop_scale=0.9`). At eval time, center crop (area 90%, then resize back) must be applied.
+- Isolated impact: ~3pp (OpenVLA LIBERO 73.3% → 76.4%).
+- Reference: `openvla/experiments/robot/openvla_utils.py:crop_and_resize()`.
+- Detection: check if reference config has `center_crop: true` or `image_aug` in checkpoint name.
+
+## 7. Environment / Infra
+
+**env.seed**
+- Some references use a different seed for the environment (`env.seed()`) than for the global random state (`set_seed_everywhere()`). For example, the OpenVLA LIBERO reference uses `env.seed(0)` while setting the random seed to 7. The LIBERO `env.seed()` comment says it "seems to affect object positions even when using fixed initial state." Individual impact not measured.
+- Detection: check the reference eval's environment setup for explicit `env.seed()` calls.
 
 **Internal forks**
 - Some codebases evaluate using forks with patches not in the public repos:
@@ -126,17 +140,3 @@ Pitfalls identified during systematic pipeline verification of 5+ VLA codebases 
 - Detection: Check if the official eval references a git submodule, specific fork URL, or custom Dockerfile.
 
 
----
-
-## Quick Checklist
-
-Before claiming a reproduction:
-
-- [ ] Rotation convention matches (euler/axis-angle/rot6d/quaternion wxyz vs xyzw)
-- [ ] Action dimension and mode (absolute vs delta) match
-- [ ] Gripper: threshold, polarity, sticky mechanism if needed
-- [ ] State: correct key, format, source, and eef_pos if required
-- [ ] Episode budget (max_steps) and chunk_size match official eval
-- [ ] Termination logic matches (truncation vs early_stop vs accumulate)
-- [ ] Image preprocessing matches (resize method, flip, resolution)
-- [ ] Env version matches (check for internal forks, patches)

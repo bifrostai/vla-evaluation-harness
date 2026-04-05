@@ -68,6 +68,8 @@ class LIBEROBenchmark(StepBenchmark):
             initial dummy-wait steps.
         max_steps: Override the default suite-specific max step count.
             When None, uses ``MAX_STEP_MAPPING[suite]``.
+        env_seed: Seed for ``env.seed()``.  When None, defaults to ``seed``.
+            OpenVLA reference uses ``env_seed=0`` separately from ``seed=7``.
     """
 
     def __init__(
@@ -79,10 +81,12 @@ class LIBEROBenchmark(StepBenchmark):
         send_state: bool = False,
         absolute_action: bool = False,
         max_steps: int | None = None,
+        env_seed: int | None = None,
     ) -> None:
         super().__init__()
         self.suite = suite
         self.seed = seed
+        self.env_seed = env_seed if env_seed is not None else seed
         self.num_steps_wait = num_steps_wait
         self.send_wrist_image = send_wrist_image
         self.send_state = send_state
@@ -163,7 +167,7 @@ class LIBEROBenchmark(StepBenchmark):
                 "camera_widths": LIBERO_ENV_RESOLUTION,
             }
             env = OffScreenRenderEnv(**env_args)
-            env.seed(self.seed)
+            env.seed(self.env_seed)
             self._env = env
             self._current_task_id = task_id
 

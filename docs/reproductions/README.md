@@ -6,7 +6,7 @@ Systematic verification that vla-eval reproduces published VLA model scores acro
 
 | Codebase | Model | LIBERO | CALVIN | SE WidowX VM | SE GR VM | SE GR VA | RoboTwin | Other |
 |----------|-------|:------:|:------:|:------------:|:--------:|:--------:|:--------:|:-----:|
-| [openvla/openvla](https://github.com/openvla/openvla) | [OpenVLA](https://arxiv.org/abs/2406.09246) | ⬜<br>[76.5%](https://huggingface.co/openvla/openvla-7b) | · | · | · | · | · | |
+| [openvla/openvla](https://github.com/openvla/openvla) | [OpenVLA](https://arxiv.org/abs/2406.09246) | ✅<br>**76.2%** / [76.5%](https://huggingface.co/openvla/openvla-7b) | · | · | · | · | · | |
 | [Physical-Intelligence/openpi](https://github.com/Physical-Intelligence/openpi) | [π₀.₅](https://arxiv.org/abs/2410.24164) | ✅<br>**97.7%** / [96.9%](https://huggingface.co/collections/physical-intelligence/openpi-6752e26cfc04d5f5013709ef) | · | · | · | · | · | |
 | [microsoft/CogACT](https://github.com/microsoft/CogACT) | [CogACT](https://arxiv.org/abs/2411.19650) | · | · | ⬜<br>[51.3%](https://huggingface.co/CogACT/CogACT-Base) | ⬜<br>[74.8%](https://huggingface.co/CogACT/CogACT-Base) | ⬜<br>[61.3%](https://huggingface.co/CogACT/CogACT-Base) | · | |
 | [moojink/openvla-oft](https://github.com/moojink/openvla-oft) | [OpenVLA-OFT](https://arxiv.org/abs/2502.19645) | ⬜<br>[97.1%](https://huggingface.co/moojink/openvla-7b-oft-finetuned-libero-spatial-object-goal-10) (sp: 94.0%) | · | · | · | · | · | |
