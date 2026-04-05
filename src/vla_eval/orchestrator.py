@@ -64,6 +64,7 @@ class Orchestrator:
         self._server_cfg = ServerConfig.from_dict(config.get("server"))
         self.shard_id = shard_id
         self.num_shards = num_shards
+        self._output_file_lock: FileLock | None = None
 
     async def run(self) -> list[dict[str, Any]]:
         """Run all benchmarks defined in config."""
@@ -76,6 +77,12 @@ class Orchestrator:
 
         return all_results
 
+    def _release_file_lock(self) -> None:
+        """Release the shard output file lock if held."""
+        if self._output_file_lock is not None:
+            self._output_file_lock.release()
+            self._output_file_lock = None
+
     async def _run_benchmark(self, bench_cfg: dict[str, Any]) -> dict[str, Any]:
         """Run a single benchmark evaluation."""
         cfg = EvalConfig.from_dict(bench_cfg)
@@ -84,7 +91,7 @@ class Orchestrator:
         logger.info("Starting benchmark: %s (mode=%s)", name, cfg.mode)
 
         # Fail fast: claim the output path via file lock (shard mode).
-        self._output_file_lock: FileLock | None = None
+        self._output_file_lock = None
         if self.num_shards is not None and self.shard_id is not None:
             output_dir = Path(self.config.get("output_dir", "./results"))
             output_dir.mkdir(parents=True, exist_ok=True)
@@ -101,15 +108,16 @@ class Orchestrator:
             except Timeout:
                 raise FileExistsError(f"Another eval is already writing to {output_path}")
 
+        try:
+            return await self._run_benchmark_inner(cfg, name)
+        finally:
+            self._release_file_lock()
+
+    async def _run_benchmark_inner(self, cfg: EvalConfig, name: str) -> dict[str, Any]:
+        """Inner benchmark logic. Lock release is handled by the caller."""
         # Connect to model server FIRST to get observation requirements
         conn = Connection(self._server_cfg.url, timeout=self._server_cfg.timeout)
-        try:
-            await conn.connect(benchmark=cfg.benchmark)
-        except Exception:
-            if self._output_file_lock is not None:
-                self._output_file_lock.release()
-                self._output_file_lock = None
-            raise
+        await conn.connect(benchmark=cfg.benchmark)
 
         # Resolve benchmark class and inspect its __init__ signature once
         benchmark_cls = resolve_import_string(cfg.benchmark)
@@ -128,9 +136,6 @@ class Orchestrator:
         try:
             benchmark = benchmark_cls(**merged_params)
         except Exception:
-            if self._output_file_lock is not None:
-                self._output_file_lock.release()
-                self._output_file_lock = None
             await conn.close()
             raise
 
@@ -355,10 +360,5 @@ class Orchestrator:
 
         output_path.write_text(json.dumps(output, indent=2, default=str))
         logger.info("Results saved to %s", output_path)
-
-        # Release file lock after successful save
-        if self._output_file_lock is not None:
-            self._output_file_lock.release()
-            self._output_file_lock = None
 
         return output
