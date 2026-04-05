@@ -41,52 +41,33 @@ def test_to_json_returns_valid_json():
     assert isinstance(parsed["tasks"], list)
 
 
-def test_infra_errors_excluded_from_metrics():
-    """Episodes with failure_reason should not affect success rate."""
+def test_errors_included_in_metrics():
+    """All episodes count toward metrics. Errors are reported but not excluded."""
     collector = ResultCollector("bench", mode="sync", metric_keys={"success": "mean"})
-    # 2 real episodes: 1 success, 1 failure
     collector.record("task_a", {"episode_id": 0, "metrics": {"success": True}, "steps": 10})
     collector.record("task_a", {"episode_id": 1, "metrics": {"success": False}, "steps": 20})
-    # 2 infra errors — should NOT count toward success rate
     collector.record("task_a", {"episode_id": 2, "metrics": {"success": False}, "failure_reason": "timeout"})
-    collector.record("task_a", {"episode_id": 3, "metrics": {"success": False}, "failure_reason": "connection_closed"})
+    collector.record("task_a", {"episode_id": 3, "metrics": {"success": False}, "failure_reason": "exception"})
 
     task = collector.get_task_result("task_a")
-    # Success rate = 1/2 (only real episodes), NOT 1/4
-    assert task.get("mean_success") == pytest.approx(0.5)
+    # Success rate = 1/4 (all episodes count)
+    assert task.get("mean_success") == pytest.approx(0.25)
     assert task["num_episodes"] == 4
-    assert task["num_errors"] == 2
-    assert task["avg_steps"] == pytest.approx(15.0)  # only from completed episodes
+    assert task["num_errors"] == 2  # episodes with any failure_reason
 
     result = collector.get_benchmark_result()
-    assert result.get("mean_success") == pytest.approx(0.5)
+    assert result.get("mean_success") == pytest.approx(0.25)
 
 
-def test_all_episodes_errored():
-    """When all episodes are infra errors, metrics should be absent."""
-    collector = ResultCollector("bench", mode="sync", metric_keys={"success": "mean"})
-    collector.record(
-        "task_a", {"episode_id": 0, "metrics": {"success": False}, "failure_reason": "server_unreachable"}
-    )
-    collector.record("task_a", {"episode_id": 1, "metrics": {"success": False}, "failure_reason": "exception"})
-
-    task = collector.get_task_result("task_a")
-    assert task["num_episodes"] == 2
-    assert task["num_errors"] == 2
-    assert "mean_success" not in task  # no completed episodes → no metric
-
-    result = collector.get_benchmark_result()
-    assert "mean_success" not in result
-
-
-def test_no_errors_no_num_errors_key():
-    """When no infra errors occur, num_errors should be absent from task result."""
+def test_num_errors_absent_when_no_errors():
+    """When no errors occur, num_errors should be absent from task result."""
     collector = ResultCollector("bench", mode="sync", metric_keys={"success": "mean"})
     collector.record("task_a", {"episode_id": 0, "metrics": {"success": True}, "steps": 5})
+    collector.record("task_a", {"episode_id": 1, "metrics": {"success": False}, "steps": 10})
 
     task = collector.get_task_result("task_a")
     assert "num_errors" not in task
-    assert task.get("mean_success") == pytest.approx(1.0)
+    assert task.get("mean_success") == pytest.approx(0.5)
 
 
 def test_custom_metric_aggregation():
@@ -226,7 +207,7 @@ def test_merge_excludes_infra_errors():
                 "task": "A",
                 "episodes": [
                     {"episode_id": 1, "metrics": {"success": False}, "steps": 20},
-                    {"episode_id": 3, "metrics": {"success": False}, "failure_reason": "exception"},
+                    {"episode_id": 3, "metrics": {"success": False}, "failure_reason": "connection_closed"},
                 ],
             }
         ],
@@ -234,11 +215,11 @@ def test_merge_excludes_infra_errors():
     )
 
     merged = merge_shards([shard0, shard1])
-    # 4 total episodes, 2 infra errors → mean_success = 1/2 (not 1/4)
-    assert merged.get("mean_success") == pytest.approx(0.5)
+    # 4 total episodes, all count → mean_success = 1/4
+    assert merged.get("mean_success") == pytest.approx(0.25)
     task = merged["tasks"][0]
     assert task["num_episodes"] == 4
-    assert task["num_errors"] == 2
+    assert task["num_errors"] == 2  # episodes with failure_reason
 
 
 def test_load_shard_files_rejects_non_shard(tmp_path):

@@ -281,8 +281,8 @@ class Orchestrator:
                     )
                     try:
                         await conn.reconnect()
-                    except ConnectionError:
-                        logger.error("Reconnect failed, aborting benchmark")
+                    except Exception:
+                        logger.exception("Reconnect failed, aborting benchmark")
                         return self._save_results(collector, cfg, partial=True, server_info=conn.server_info)
                 except TimeoutError as exc:
                     logger.warning(
@@ -304,8 +304,8 @@ class Orchestrator:
                     )
                     try:
                         await conn.reconnect()
-                    except ConnectionError:
-                        logger.error("Reconnect failed, aborting benchmark")
+                    except Exception:
+                        logger.exception("Reconnect failed, aborting benchmark")
                         return self._save_results(collector, cfg, partial=True, server_info=conn.server_info)
                 except Exception:
                     logger.exception(

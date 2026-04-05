@@ -132,8 +132,7 @@ def merge_shards(shards: list[dict[str, Any]]) -> dict[str, Any]:
 
     if metric_keys:
         merged["metric_keys"] = metric_keys
-        completed = [e for e in all_episodes_flat if not e.get("failure_reason")]
-        _aggregate_metrics(merged, completed, metric_keys)
+        _aggregate_metrics(merged, all_episodes_flat, metric_keys)
 
     return merged
 
