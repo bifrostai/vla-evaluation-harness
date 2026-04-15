@@ -117,7 +117,7 @@ class VLANeXtModelServer(PredictModelServer):
 
     def __init__(
         self,
-        checkpoint_path: str,
+        checkpoint: str,
         suite: str = "libero_spatial",
         *,
         attn_implementation: str = "sdpa",
@@ -127,7 +127,7 @@ class VLANeXtModelServer(PredictModelServer):
         **kwargs: Any,
     ) -> None:
         super().__init__(chunk_size=chunk_size, action_ensemble=action_ensemble, **kwargs)
-        self.checkpoint_path = checkpoint_path
+        self.checkpoint = checkpoint
         self.suite = suite
         self.attn_implementation = attn_implementation
         self.center_crop_ratio = center_crop_ratio
@@ -239,7 +239,7 @@ class VLANeXtModelServer(PredictModelServer):
         _ensure_vlanext()
         from src.models.VLANeXt import VLANeXt
 
-        ckpt_path = self._resolve_checkpoint(self.checkpoint_path, self.suite)
+        ckpt_path = self._resolve_checkpoint(self.checkpoint, self.suite)
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         logger.info("Loading VLANeXt from %s on %s", ckpt_path, self._device)
 

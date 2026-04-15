@@ -126,7 +126,7 @@ SERVER_REGISTRY: dict[str, str] = {
 def _extract_model_id(data: dict[str, Any]) -> str:
     """Extract model identifier from a server config, checking common key names."""
     args = data.get("args", {})
-    for key in ("model_path", "checkpoint", "pretrained_checkpoint", "checkpoint_dir", "checkpoint_path"):
+    for key in ("model_path", "checkpoint", "pretrained_checkpoint", "checkpoint_dir"):
         if key in args:
             return str(args[key])
     return "unknown"
