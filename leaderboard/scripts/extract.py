@@ -47,7 +47,7 @@ SCAN_CACHE_PATH = ROOT / ".cache" / "scan_results.json"
 FETCH_FAILURES_PATH = CACHE_DIR / "fetch_failures.json"
 
 DEFAULT_MODEL = "claude-opus-4-6[1m]"
-DEFAULT_TIMEOUT = 1200
+DEFAULT_TIMEOUT = 2400
 _ARXIV_RE = re.compile(r"arxiv\.org/abs/(\d+\.\d+)")
 
 # Lock for thread-safe fetch failure writes
@@ -301,7 +301,12 @@ EXTRACTION_SCHEMA: dict = {
                             "properties": {
                                 "label": {
                                     "type": "string",
-                                    "description": "Model label as it appears in the paper's results table",
+                                    "description": (
+                                        "Canonical method name. Usually the paper's table label, but "
+                                        "when the label is generic ('Ours', 'Baseline', 'Ablation', etc.) "
+                                        "resolve to the method's real name from the paper's title / "
+                                        "abstract / method section."
+                                    ),
                                 },
                                 "label_quote": {"type": ["string", "null"]},
                                 "params": {"type": ["string", "null"]},
@@ -374,6 +379,15 @@ EXTRACTION_SCHEMA: dict = {
             },
         },
         "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
+        "benchmarks_absent": {
+            "type": "object",
+            "description": (
+                "Map {benchmark_key: reason} for benchmarks the paper mentions but do not appear in "
+                "`benchmarks[]` (cited-only, non-standard, unreadable, etc.). Omit benchmarks the paper "
+                "never mentions."
+            ),
+            "additionalProperties": {"type": "string"},
+        },
     },
 }
 
@@ -381,91 +395,127 @@ EXTRACTION_SCHEMA: dict = {
 def _build_system_prompt(all_rules: str) -> str:
     return f"""You are the EXTRACT stage of a two-stage VLA leaderboard pipeline.
 
-## Pipeline role
+Your goal is recall. Surface every row that could belong on the leaderboard,
+with the evidence (verbatim quotes, protocol notes, attribution) a downstream
+PRECISION stage needs to make the final cut. When uncertain, extract.
 
-Be RECALL-FIRST. Surface every row that has any chance of being a leaderboard
-entry, with the evidence (verbatim quotes, protocol notes, attribution) the
-next stage needs to make the cut.
+The precision stage handles protocol gating, score arithmetic, dedup across
+papers, canonical naming cleanup, and notes — do not pre-filter for those
+concerns.
 
-A separate REFINE stage downstream handles precision — protocol gating
-(dropping rows you mark `matches_standard="no"`), score arithmetic from
-component suite/task scores, eligibility filtering, dedup across papers,
-canonical naming, and notes. Do NOT pre-filter for any of those concerns.
-When uncertain whether to extract a row, extract it.
+Baseline-comparison and related-work score tables often hold the only record
+of a given model on this benchmark (the original paper may never reach
+extraction). Extract every row in every comparison table.
 
-**Cited baselines carry the same weight as the paper's own results.** Baseline
-comparison tables and related-work score tables are often the ONLY recorded
-source for a given model on this benchmark — the original paper may not reach
-extraction for other reasons (no arxiv preprint, different citation graph,
-older than our scan). Never abbreviate or summarize a baseline table; every
-row in every comparison table is load-bearing.
+## Inclusion criteria
 
-## What belongs on the leaderboard
+A row is eligible when ALL three hold:
 
-A leaderboard entry represents a distinct, publicly identifiable VLA model or
-method. Your job is to extract only rows that belong on such a leaderboard,
-not every row in every table.
+1. **Public name (resolve from paper context when the table label is
+   generic).** Each row maps to a specific, canonical method name a reader
+   could Google — "OpenVLA", "RT-2", "π₀", "Diffusion Policy", "3D Diffuser
+   Actor", "CogACT".
 
-## Inclusion criteria (ALL must hold)
+   When the table label is generic ("Ours", "Our Method", "Proposed",
+   "Baseline", "(Ours)"), find the method's real name in the paper's title /
+   abstract / method section and emit THAT as `label` — you have Read access
+   to the paper for exactly this. Downstream stages cannot redo this lookup.
 
-A model is eligible ONLY if ALL of the following are true:
+   Skip only when the paper offers no canonical name, or the label is an
+   unnamed suffix ("Ablation", "(b)", "variant X") with no recoverable
+   identity.
 
-1. **Public name**: it has a specific, canonical name a reader could Google.
-   Examples of ELIGIBLE names: "OpenVLA", "RT-2", "π₀", "Diffusion Policy",
-   "3D Diffuser Actor", "CogACT".
-   NEVER extract rows labeled: "Ours", "Our Method", "Our Model", "Proposed",
-   "This Work", "Baseline", "Ablation", or anything that is only meaningful
-   inside the paper. If the only label is "Ours", find the method's actual
-   name from the title/abstract — and if there is none, SKIP the row.
-
-2. **Primary configuration**: it represents a distinct method, not a minor
-   variant along one axis. SKIP rows that are ablations, hyperparameter
-   sweeps, training-stage snapshots, or post-processing variants of a
-   primary method. Specifically skip rows whose only differentiator is:
+2. **Primary configuration, not an ablation variant.** Skip rows whose only
+   differentiator is:
    - quantization scheme (INT4, INT8, FP8, AWQ, PTQ, QAT, GPTQ, GGUF, ...)
    - parameter-efficient tuning (LoRA, QLoRA, adapter, prefix-tuning, ...)
-   - data/training-stage variant ("w/o pretrain", "stage 1", "50% data", ...)
-   - horizon/action-chunk hyperparameters ("k=1", "chunk=8", ...)
-   - a minor architecture tweak marked with a suffix like "+feature X"
-   Unless such a variant IS the paper's main contribution (e.g. a paper
-   whose core claim is about quantization), treat it as an ablation and
-   skip it.
+   - training-stage variant ("w/o pretrain", "stage 1", "50% data", ...)
+   - horizon / action-chunk hyperparameters ("k=1", "chunk=8", ...)
+   - suffix tweaks like "+feature X"
+   Unless that variant is the paper's main contribution.
 
-3. **Score attribution**: the row reports a concrete numerical score on a
-   listed benchmark that the paper either ran itself or cites verbatim.
-   Skip rows with only qualitative notes or with no recoverable number.
+3. **Numeric score.** The row reports a concrete number on a listed
+   benchmark — either the paper's own run or a cited baseline. Skip rows
+   with only qualitative notes.
 
-## Classification
+## Per-row fields
 
-For each eligible model, set `is_score_original`:
-- `original` — paper ran this model itself (new run, their proposed method
-  or their re-run of a baseline)
-- `cited_baseline` — number quoted from another paper, not re-run here
-- `reproduction` — paper explicitly marks it as their reproduction of prior work
-- `unknown` — genuinely cannot tell
+For each eligible model:
 
-And `weight_type`: `shared` (same checkpoint across benchmarks) or
-`finetuned` (trained specifically on this benchmark's data).
+- `label`: canonical method name (resolved per criterion 1).
+- `weight_type`: `shared` (same checkpoint across benchmarks) or `finetuned`
+  (trained specifically on this benchmark's data).
+- `is_score_original`:
+  - `original` — paper ran this model itself
+  - `cited_baseline` — number quoted from another paper, not re-run
+  - `reproduction` — paper explicitly marks it as their reproduction
+  - `unknown` — genuinely cannot tell
+- `scores`: the benchmark's numeric results. See the benchmark rules
+  below for the exact JSON shape; the general structure is:
+  - `overall_score`: the benchmark's canonical aggregate.
+  - `suite_scores`: sub-scores over groupings the benchmark itself
+    defines — e.g. LIBERO's 5 suites (`libero_spatial`/`libero_object`/
+    `libero_goal`/`libero_10`/`libero_90`), CALVIN's
+    `chain_1`..`chain_5`, SimplerEnv's `google_robot_vm`/`..._va`/
+    `widowx_vm`.
+  - `task_scores`: individual per-task success rates — e.g. RoboCasa
+    `PnPCounterToMicrowave`, ManiSkill2 `PickCube`.
 
-## Hard rules
+  Emit every tabulated per-suite / per-task number as its own entry.
+  Do not collapse a detailed results table to `overall_score` alone.
 
-- Every extracted score MUST carry a verbatim `quote` from the paper.
-- If you cannot find a value, return null. Never guess or compute.
-- Use the exact benchmark key as listed (e.g. "libero", "calvin").
-- Be conservative. A paper whose entire contribution is a survey,
-  reproduction study, or evaluation harness (not a new method) should
-  usually return an empty `benchmarks` array — those rows are already
-  on the leaderboard via their original papers.
+  Every numeric score carries a verbatim `quote`. Values you cannot
+  locate in the paper are `null`.
+- `protocol.matches_standard`: `yes` / `no` / `partial` / `unknown`.
+  Failing a benchmark's `Checks` → `no`. Differences along `Methodology
+  axes` → `yes`.
 
-## Benchmark rule template
+Use the exact benchmark key as listed in the rules (e.g. `libero`, `calvin`).
 
-Each benchmark block below opens with a bold `**Standard**: ...` line — the
-canonical protocol in one sentence. `Scoring` prescribes the JSON shape
-(`overall_score` computation, canonical `suite_scores` / `task_scores` keys).
-`Checks` are yes/no questions a row must pass; a failed check means the row
-has `protocol.matches_standard = "no"`. `Methodology axes` are variance
-dimensions to record in your extraction rationale / quotes — they are NOT
-protocol violations, so a row that merely differs along these axes still has
+## Coverage
+
+Your goal at this stage is coverage. A downstream stage filters and
+deduplicates — your job is to surface every benchmark-row the paper touches.
+
+For every benchmark key in your scope, before calling StructuredOutput:
+
+1. Grep the paper for the benchmark's key name, display name, and its
+   standard suite / task names listed in the rules below.
+2. If the paper reports any numeric score for it → add an entry to
+   `benchmarks[]`.
+3. If the paper mentions it without an extractable score (cited-only,
+   non-standard unreadable, etc.) → add an entry to `benchmarks_absent`
+   keyed by benchmark id with a one-line reason.
+4. If the paper does not mention the benchmark → omit it from both.
+
+A paper that evaluates on multiple benchmarks produces entries for every
+one of them, not just the one framed as the paper's main contribution.
+
+Return `benchmarks: []` only for pure survey / theory papers with no
+evaluation table.
+
+## Review before StructuredOutput
+
+Before emitting the final output, check each row:
+
+- Every numeric value has an `*_quote` containing that value's exact
+  characters from the paper. If you cannot locate the text, set the
+  value to `null`.
+- Every claim in `protocol.rationale` (task count, demo count, split,
+  embodiment, etc.) has matching text in `evidence_quote`. A claim
+  without a supporting quote → downgrade `matches_standard` one step
+  toward `"unknown"`.
+- `matches_standard` is consistent with `protocol.rationale`. If the
+  rationale describes any benchmark `Checks` violation (subset of the
+  standard task set, alternative embodiment, non-standard split, etc.),
+  `matches_standard` cannot be `"yes"`.
+
+## Benchmark rules
+
+Each block below opens with `**Standard**: ...` (the canonical protocol).
+`Scoring` prescribes the JSON shape. `Checks` lists yes/no questions;
+failing any → `protocol.matches_standard = "no"`. `Methodology axes` are
+variance dimensions — differences along these still allow
 `matches_standard = "yes"`.
 
 {all_rules}
@@ -565,6 +615,7 @@ def _batched_schema() -> dict:
                         "arxiv_id": {"type": "string"},
                         "benchmarks": single["properties"]["benchmarks"],
                         "confidence": single["properties"]["confidence"],
+                        "benchmarks_absent": single["properties"]["benchmarks_absent"],
                     },
                 },
             }
@@ -665,6 +716,7 @@ def extract_batch(
             "paper_hash": _paper_hash(aid),
             "extraction_scope": scope,
             "benchmarks": p.get("benchmarks", []),
+            "benchmarks_absent": p.get("benchmarks_absent") or {},
             "confidence": p.get("confidence"),
         }
         _save_cached_extraction(aid, record)
