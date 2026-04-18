@@ -10,6 +10,10 @@ Two subcommands::
     uv run extract.py run 2505.05800 [--workers 4] # extract from papers
 
 Pipeline: scan → run → refine.py → validate.py → sync_external.py
+
+Output shape is defined by leaderboard/data/extraction.schema.json. This
+script loads that schema at runtime — field semantics live there, not
+duplicated in the prompt.
 """
 
 from __future__ import annotations
@@ -43,11 +47,13 @@ EXTRACTION_LOGS_DIR = ROOT / ".cache" / "extraction_logs"
 EXTRACTIONS_JSON = DATA_DIR / "extractions.json"
 BENCHMARKS_DIR = ROOT / "benchmarks"
 BENCHMARKS_JSON_PATH = DATA_DIR / "benchmarks.json"
+EXTRACTION_SCHEMA_PATH = DATA_DIR / "extraction.schema.json"
 SCAN_CACHE_PATH = ROOT / ".cache" / "scan_results.json"
 FETCH_FAILURES_PATH = CACHE_DIR / "fetch_failures.json"
 
 DEFAULT_MODEL = "claude-opus-4-6[1m]"
 DEFAULT_TIMEOUT = 2400
+DEFAULT_BATCH_SIZE = 30
 _ARXIV_RE = re.compile(r"arxiv\.org/abs/(\d+\.\d+)")
 
 # Lock for thread-safe fetch failure writes
@@ -278,265 +284,129 @@ class LLMError(RuntimeError):
     pass
 
 
-EXTRACTION_SCHEMA: dict = {
-    "type": "object",
-    "required": ["benchmarks", "confidence"],
-    "properties": {
-        "benchmarks": {
-            "type": "array",
-            "description": "One entry per benchmark found in this paper. Empty array if the paper does not evaluate any known benchmark.",
-            "items": {
-                "type": "object",
-                "required": ["benchmark", "models"],
-                "properties": {
-                    "benchmark": {
-                        "type": "string",
-                        "description": "Benchmark key exactly as listed in the rules (e.g. 'libero', 'calvin', 'simpler_env')",
-                    },
-                    "models": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "required": ["label", "scores"],
-                            "properties": {
-                                "label": {
-                                    "type": "string",
-                                    "description": (
-                                        "Canonical method name. Usually the paper's table label, but "
-                                        "when the label is generic ('Ours', 'Baseline', 'Ablation', etc.) "
-                                        "resolve to the method's real name from the paper's title / "
-                                        "abstract / method section."
-                                    ),
-                                },
-                                "label_quote": {"type": ["string", "null"]},
-                                "params": {"type": ["string", "null"]},
-                                "params_quote": {"type": ["string", "null"]},
-                                "weight_type": {"type": "string", "enum": ["shared", "finetuned", "unknown"]},
-                                "weight_type_quote": {"type": ["string", "null"]},
-                                "is_score_original": {
-                                    "type": "string",
-                                    "enum": ["original", "cited_baseline", "reproduction", "unknown"],
-                                },
-                                "attribution_quote": {"type": ["string", "null"]},
-                                "scores": {
-                                    "type": "object",
-                                    "properties": {
-                                        "overall_score": {"type": ["number", "null"]},
-                                        "overall_score_quote": {"type": ["string", "null"]},
-                                        "suite_scores": {
-                                            "type": "object",
-                                            "additionalProperties": {
-                                                "type": "object",
-                                                "required": ["value", "quote"],
-                                                "properties": {
-                                                    "value": {"type": "number"},
-                                                    "quote": {"type": "string"},
-                                                },
-                                            },
-                                        },
-                                        "task_scores": {
-                                            "type": "object",
-                                            "additionalProperties": {
-                                                "type": "object",
-                                                "required": ["value", "quote"],
-                                                "properties": {
-                                                    "value": {"type": "number"},
-                                                    "quote": {"type": "string"},
-                                                },
-                                            },
-                                        },
-                                        "reported_table": {"type": ["string", "null"]},
-                                    },
-                                },
-                                "protocol": {
-                                    "type": "object",
-                                    "required": ["matches_standard", "rationale"],
-                                    "properties": {
-                                        "matches_standard": {
-                                            "type": "string",
-                                            "enum": ["yes", "no", "partial", "unknown"],
-                                        },
-                                        "rationale": {"type": "string"},
-                                        "evidence_quote": {"type": ["string", "null"]},
-                                    },
-                                },
-                            },
-                        },
-                    },
-                    "risky_patterns": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "required": ["id", "answer"],
-                            "properties": {
-                                "id": {"type": "string"},
-                                "answer": {"type": "string", "enum": ["yes", "no", "unknown"]},
-                                "quote": {"type": ["string", "null"]},
-                            },
-                        },
-                    },
-                },
-            },
-        },
-        "confidence": {"type": "string", "enum": ["high", "medium", "low"]},
-        "benchmarks_absent": {
-            "type": "object",
-            "description": (
-                "Map {benchmark_key: reason} for benchmarks the paper mentions but do not appear in "
-                "`benchmarks[]` (cited-only, non-standard, unreadable, etc.). Omit benchmarks the paper "
-                "never mentions."
-            ),
-            "additionalProperties": {"type": "string"},
-        },
-    },
-}
+@functools.lru_cache(maxsize=1)
+def _extraction_schema() -> dict:
+    """Load the authoritative per-paper extraction schema."""
+    return json.loads(EXTRACTION_SCHEMA_PATH.read_text())
+
+
+# The claude CLI's `--json-schema` mode does not reliably populate
+# `structured_output` for schemas larger than a few fields (the LLM
+# falls back to emitting a JSON code block in assistant text, which the
+# CLI does not convert). Instead of relying on that path, we instruct
+# the LLM to Write a partial file per paper and post-process.
 
 
 def _build_system_prompt(all_rules: str) -> str:
     return f"""You are the EXTRACT stage of a two-stage VLA leaderboard pipeline.
 
-Your goal is recall. Surface every row that could belong on the leaderboard,
-with the evidence (verbatim quotes, protocol notes, attribution) a downstream
-PRECISION stage needs to make the final cut. When uncertain, extract.
+Your objective at this stage is recall, not precision. Surface every
+row that could belong on the leaderboard. A downstream PRECISION stage
+applies eligibility filters, dedup, canonical-name cleanup, and notes
+composition — do not pre-filter for those concerns. When uncertain,
+extract; it is better to surface a row that later gets dropped than to
+silently lose a real measurement.
 
-The precision stage handles protocol gating, score arithmetic, dedup across
-papers, canonical naming cleanup, and notes — do not pre-filter for those
-concerns.
+Baseline-comparison and related-work tables in a paper often hold the
+only record of a given model on a benchmark (the original paper may
+never reach extraction). Extract every row in every comparison table.
 
-Baseline-comparison and related-work score tables often hold the only record
-of a given model on this benchmark (the original paper may never reach
-extraction). Extract every row in every comparison table.
+Field semantics and output structure are defined by the JSON schema you
+write against. The rules below cover decisions that depend on paper
+context (the schema alone cannot specify them).
 
-## Inclusion criteria
+## Scope per benchmark
 
-A row is eligible when ALL three hold:
+For every benchmark listed in the rules below:
 
-1. **Public name (resolve from paper context when the table label is
-   generic).** Each row maps to a specific, canonical method name a reader
-   could Google — "OpenVLA", "RT-2", "π₀", "Diffusion Policy", "3D Diffuser
-   Actor", "CogACT".
+1. Grep the paper for the benchmark's key name, display name, and the
+   suite/task names in its Standard.
+2. Paper scores it → add to `benchmarks[]`.
+3. Paper mentions it without an extractable score → add to
+   `benchmarks_absent` with a one-line reason.
+4. Paper doesn't mention it → omit from both.
 
-   When the table label is generic ("Ours", "Our Method", "Proposed",
-   "Baseline", "(Ours)"), find the method's real name in the paper's title /
-   abstract / method section and emit THAT as `label` — you have Read access
-   to the paper for exactly this. Downstream stages cannot redo this lookup.
-
-   Skip only when the paper offers no canonical name, or the label is an
-   unnamed suffix ("Ablation", "(b)", "variant X") with no recoverable
-   identity.
-
-2. **Primary configuration, not an ablation variant.** Skip rows whose only
-   differentiator is:
-   - quantization scheme (INT4, INT8, FP8, AWQ, PTQ, QAT, GPTQ, GGUF, ...)
-   - parameter-efficient tuning (LoRA, QLoRA, adapter, prefix-tuning, ...)
-   - training-stage variant ("w/o pretrain", "stage 1", "50% data", ...)
-   - horizon / action-chunk hyperparameters ("k=1", "chunk=8", ...)
-   - suffix tweaks like "+feature X"
-   Unless that variant is the paper's main contribution.
-
-3. **Numeric score.** The row reports a concrete number on a listed
-   benchmark — either the paper's own run or a cited baseline. Skip rows
-   with only qualitative notes.
-
-## Per-row fields
-
-For each eligible model:
-
-- `label`: canonical method name (resolved per criterion 1).
-- `weight_type`: `shared` (same checkpoint across benchmarks) or `finetuned`
-  (trained specifically on this benchmark's data).
-- `is_score_original`:
-  - `original` — paper ran this model itself
-  - `cited_baseline` — number quoted from another paper, not re-run
-  - `reproduction` — paper explicitly marks it as their reproduction
-  - `unknown` — genuinely cannot tell
-- `scores`: the benchmark's numeric results. See the benchmark rules
-  below for the exact JSON shape; the general structure is:
-  - `overall_score`: the benchmark's canonical aggregate.
-  - `suite_scores`: sub-scores over groupings the benchmark itself
-    defines — e.g. LIBERO's 5 suites (`libero_spatial`/`libero_object`/
-    `libero_goal`/`libero_10`/`libero_90`), CALVIN's
-    `chain_1`..`chain_5`, SimplerEnv's `google_robot_vm`/`..._va`/
-    `widowx_vm`.
-  - `task_scores`: individual per-task success rates — e.g. RoboCasa
-    `PnPCounterToMicrowave`, ManiSkill2 `PickCube`.
-
-  Emit every tabulated per-suite / per-task number as its own entry.
-  Do not collapse a detailed results table to `overall_score` alone.
-
-  Every numeric score carries a verbatim `quote`. Values you cannot
-  locate in the paper are `null`.
-- `protocol.matches_standard`: `yes` / `no` / `partial` / `unknown`.
-  Failing a benchmark's `Checks` → `no`. Differences along `Methodology
-  axes` → `yes`.
-
-Use the exact benchmark key as listed in the rules (e.g. `libero`, `calvin`).
-
-## Coverage
-
-Your goal at this stage is coverage. A downstream stage filters and
-deduplicates — your job is to surface every benchmark-row the paper touches.
-
-For every benchmark key in your scope, before calling StructuredOutput:
-
-1. Grep the paper for the benchmark's key name, display name, and its
-   standard suite / task names listed in the rules below.
-2. If the paper reports any numeric score for it → add an entry to
-   `benchmarks[]`.
-3. If the paper mentions it without an extractable score (cited-only,
-   non-standard unreadable, etc.) → add an entry to `benchmarks_absent`
-   keyed by benchmark id with a one-line reason.
-4. If the paper does not mention the benchmark → omit it from both.
-
-A paper that evaluates on multiple benchmarks produces entries for every
-one of them, not just the one framed as the paper's main contribution.
-
-Return `benchmarks: []` only for pure survey / theory papers with no
+Return `benchmarks: []` only for pure theory/survey papers with no
 evaluation table.
 
-## Review before StructuredOutput
+## Resolving generic labels
 
-Before emitting the final output, check each row:
+When a results-table label is generic ("Ours", "Our Method", "Proposed",
+"Baseline", "(b)", "variant X"), look up the method's real name in the
+paper's title, abstract, or method section and emit that canonical name
+as `name_in_paper`. Downstream stages cannot redo this lookup.
 
-- Every numeric value has an `*_quote` containing that value's exact
-  characters from the paper. If you cannot locate the text, set the
-  value to `null`.
+## Resolving model_paper
+
+For every row, set `model_paper` to the URL of the paper that introduces
+the method. Find it in the paper's reference list. Any URL is valid —
+arxiv, ACL Anthology, DOI, tech report. null only when the method has
+no public paper.
+
+## Resolving cited_paper
+
+When `is_score_original='cited_baseline'`, set `cited_paper` to the URL
+the score is attributed to. Resolve arxiv references via the paper's
+bibliography. Non-arxiv sources (official github, tech reports, blogs)
+are valid URLs too. Leave null when the paper quotes a number without
+naming a source.
+
+## Normalize scale
+
+Emit numeric values in the benchmark's declared `metric.range`. If the
+paper reports on a different scale (commonly 0–1 for a 0–100 benchmark),
+convert before emitting. Quotes stay verbatim from the paper.
+
+## Preserve non-standard tasks
+
+A benchmark's declared task list identifies the standard protocol, not
+the set of allowed keys. Tasks outside that list (non-standard protocols)
+stay in `task_scores` under the paper's verbatim names; the row's
+`protocol.matches_standard` becomes 'no' but the data is preserved.
+
+## Exclude ablation variants
+
+Skip rows whose only differentiator is quantization (INT4, AWQ, GPTQ),
+parameter-efficient tuning (LoRA, adapter), training-stage variant
+("w/o pretrain", "50% data"), or hyperparameter sweep ("k=1",
+"chunk=8") — unless that variant is the paper's main contribution.
+
+## Self-check before emitting
+
+- Every numeric value has a matching *_quote from the paper. If not
+  locatable, set the value to null.
 - Every claim in `protocol.rationale` (task count, demo count, split,
-  embodiment, etc.) has matching text in `evidence_quote`. A claim
-  without a supporting quote → downgrade `matches_standard` one step
-  toward `"unknown"`.
-- `matches_standard` is consistent with `protocol.rationale`. If the
-  rationale describes any benchmark `Checks` violation (subset of the
-  standard task set, alternative embodiment, non-standard split, etc.),
-  `matches_standard` cannot be `"yes"`.
+  embodiment) has a matching evidence_quote. Unsupported claims →
+  downgrade matches_standard one step toward 'unknown'.
+- If the rationale describes any Checks violation, matches_standard is
+  'no' — not 'yes'.
 
 ## Benchmark rules
 
-Each block below opens with `**Standard**: ...` (the canonical protocol).
-`Scoring` prescribes the JSON shape. `Checks` lists yes/no questions;
-failing any → `protocol.matches_standard = "no"`. `Methodology axes` are
-variance dimensions — differences along these still allow
-`matches_standard = "yes"`.
+Each block below opens with **Standard**: (the canonical protocol).
+Scoring prescribes the JSON shape for scores. Checks lists yes/no
+questions; failing any → matches_standard='no'. Methodology axes are
+variance dimensions — differences along these still allow 'yes'.
 
 {all_rules}
 """
 
 
+EXTRACTIONS_RAW_DIR = ROOT / ".cache" / "extractions_raw"
+
+
 def _call_claude_cli(
     system_prompt: str,
     user_prompt: str,
-    json_schema: dict,
-    paper_dir: Path,
+    extra_add_dirs: list[Path],
     model: str = DEFAULT_MODEL,
     timeout: int = DEFAULT_TIMEOUT,
     log_path: Path | None = None,
-) -> tuple[dict, int]:
-    """Call claude CLI in tool mode over paper_dir.
+) -> int:
+    """Invoke the claude CLI. Returns n_tool_calls observed in the stream.
 
-    The paper file is NOT inlined into the prompt. The model navigates it
-    via tools restricted to ``paper_dir``. Returns
-    ``(structured_output, n_tool_calls)``. Writes raw stream-json stdout
-    to ``log_path``.
+    Writes raw stream-json stdout to ``log_path``. Raises LLMError on
+    non-zero exit or no final result event.
     """
     cmd = [
         "claude",
@@ -545,17 +415,19 @@ def _call_claude_cli(
         model,
         "--system-prompt",
         system_prompt,
-        "--json-schema",
-        json.dumps(json_schema),
         "--output-format",
         "stream-json",
         "--verbose",
-        "--add-dir",
-        str(paper_dir),
         "--permission-mode",
         "bypassPermissions",
         "--no-session-persistence",
+        # Restrict to Claude Code native tools; block MCP servers and
+        # user skills that might delegate to outside knowledge sources.
+        "--strict-mcp-config",
+        "--disable-slash-commands",
     ]
+    for d in extra_add_dirs:
+        cmd += ["--add-dir", str(d.resolve())]
     try:
         result = subprocess.run(cmd, input=user_prompt, capture_output=True, text=True, timeout=timeout)
     except FileNotFoundError as e:
@@ -565,8 +437,8 @@ def _call_claude_cli(
     if result.returncode != 0:
         raise LLMError(f"exit {result.returncode}: {result.stderr[:500]}")
 
-    structured: dict | None = None
     n_tool_calls = 0
+    seen_result = False
     for line in result.stdout.splitlines():
         line = line.strip()
         if not line:
@@ -582,45 +454,142 @@ def _call_claude_cli(
                 if block.get("type") == "tool_use":
                     n_tool_calls += 1
         if evt.get("type") == "result":
-            structured = evt.get("structured_output")
+            seen_result = True
 
     if log_path is not None:
         log_path.parent.mkdir(parents=True, exist_ok=True)
         log_path.write_text(result.stdout, encoding="utf-8")
 
-    if not isinstance(structured, dict):
-        raise LLMError("no structured_output in stream")
-    return structured, n_tool_calls
+    if not seen_result:
+        raise LLMError("no result event in stream")
+    return n_tool_calls
+
+
+def _call_claude_cli_with_retry(
+    system_prompt: str,
+    user_prompt: str,
+    extra_add_dirs: list[Path],
+    model: str,
+    timeout: int,
+    log_path: Path | None,
+    retries: int = 1,
+) -> int:
+    """Retry once on transient failure."""
+    last_err: LLMError | None = None
+    for attempt in range(retries + 1):
+        try:
+            return _call_claude_cli(
+                system_prompt, user_prompt, extra_add_dirs, model=model, timeout=timeout, log_path=log_path
+            )
+        except LLMError as e:
+            last_err = e
+            if attempt < retries:
+                time.sleep(10)
+    assert last_err is not None
+    raise last_err
 
 
 # ---------------------------------------------------------------------------
-# Batched extraction
+# Batched extraction (file-based: LLM writes per-paper partials)
 # ---------------------------------------------------------------------------
 
 
-def _batched_schema() -> dict:
-    """Wrap the single-paper EXTRACTION_SCHEMA in a ``papers`` array."""
-    single = EXTRACTION_SCHEMA
+def _partial_path(arxiv_id: str) -> Path:
+    return EXTRACTIONS_RAW_DIR / f"{arxiv_id}.partial.json"
+
+
+def _assemble_record(aid: str, partial: dict, model: str, batch_size: int, n_tool_calls: int) -> dict:
+    """Build the full per-paper extraction record from the LLM's partial.
+
+    Matches extraction.schema.json. The partial carries arxiv_id,
+    benchmarks, and benchmarks_absent; the script fills the rest.
+    """
     return {
-        "type": "object",
-        "required": ["papers"],
-        "properties": {
-            "papers": {
-                "type": "array",
-                "description": "One entry per input paper. Match arxiv_id to the path supplied.",
-                "items": {
-                    "type": "object",
-                    "required": ["arxiv_id", "benchmarks", "confidence"],
-                    "properties": {
-                        "arxiv_id": {"type": "string"},
-                        "benchmarks": single["properties"]["benchmarks"],
-                        "confidence": single["properties"]["confidence"],
-                        "benchmarks_absent": single["properties"]["benchmarks_absent"],
-                    },
-                },
-            }
-        },
+        "arxiv_id": aid,
+        "extracted_at": _now_iso(),
+        "model_used": model,
+        "batch_size": batch_size,
+        "batch_tool_calls_total": n_tool_calls,
+        "paper_hash": _paper_hash(aid),
+        "extraction_scope": sorted(_current_benchmark_keys()),
+        "benchmarks": partial.get("benchmarks", []),
+        "benchmarks_absent": partial.get("benchmarks_absent") or {},
     }
+
+
+def _run_one_batch(
+    todo: list[str],
+    all_rules: str,
+    model: str,
+    timeout: int,
+) -> dict[str, dict | None]:
+    """Run a single claude CLI call across ``todo`` papers.
+
+    The LLM reads each paper and writes per-paper extraction JSON to
+    ``{EXTRACTIONS_RAW_DIR}/{arxiv_id}.partial.json``. The script then
+    reads each partial, fills in metadata, and saves the final record
+    to ``.cache/extractions/{arxiv_id}.json``.
+    """
+    EXTRACTIONS_RAW_DIR.mkdir(parents=True, exist_ok=True)
+    # Clear any stale partials for this batch's ids so "file exists" =
+    # "this call produced it".
+    for aid in todo:
+        _partial_path(aid).unlink(missing_ok=True)
+
+    paper_lines = [
+        f"- arxiv_id={aid}  paper={CACHE_DIR / aid / 'paper.md'}  output={_partial_path(aid)}" for aid in todo
+    ]
+    system_prompt = _build_system_prompt(all_rules)
+    user_prompt = (
+        "Extract benchmark results from each paper listed below.\n\n"
+        "For every paper, write a JSON file to the `output=` path shown, "
+        "containing EXACTLY these fields:\n"
+        "  - arxiv_id (string, matches the input)\n"
+        "  - benchmarks (array, per extraction.schema.json's $defs/BenchmarkEntry)\n"
+        "  - benchmarks_absent (object, or omit if none)\n\n"
+        "Do not include extracted_at, paper_hash, extraction_scope, "
+        "model_used, or batch_* — the script fills those.\n\n"
+        "Every arxiv_id below must produce a file, even if benchmarks is "
+        "[]. Every quote you write must come from that paper's `paper=` "
+        "file.\n\n"
+        f"Field semantics: {EXTRACTION_SCHEMA_PATH}\n\n"
+        "Papers:\n" + "\n".join(paper_lines)
+    )
+    batch_tag = "_".join(todo[:2]) + (f"+{len(todo) - 2}" if len(todo) > 2 else "")
+    log_path = EXTRACTION_LOGS_DIR / f"batch_{batch_tag}.log"
+
+    try:
+        n_tool_calls = _call_claude_cli_with_retry(
+            system_prompt,
+            user_prompt,
+            extra_add_dirs=[CACHE_DIR, EXTRACTIONS_RAW_DIR],
+            model=model,
+            timeout=timeout,
+            log_path=log_path,
+            retries=1,
+        )
+    except LLMError as e:
+        print(f"    LLM error for batch ({len(todo)} papers): {e}")
+        return {aid: None for aid in todo}
+
+    results: dict[str, dict | None] = {}
+    for aid in todo:
+        partial_path = _partial_path(aid)
+        if not partial_path.exists():
+            print(f"    {aid}: no partial file written")
+            results[aid] = None
+            continue
+        try:
+            partial = json.loads(partial_path.read_text())
+        except json.JSONDecodeError as e:
+            print(f"    {aid}: invalid JSON in partial: {e}")
+            results[aid] = None
+            continue
+        record = _assemble_record(aid, partial, model, len(todo), n_tool_calls)
+        _save_cached_extraction(aid, record)
+        partial_path.unlink()
+        results[aid] = record
+    return results
 
 
 def extract_batch(
@@ -631,13 +600,10 @@ def extract_batch(
     timeout: int = DEFAULT_TIMEOUT,
     resume: bool = True,
 ) -> dict[str, dict | None]:
-    """Extract benchmark results from N papers in a SINGLE claude CLI call.
+    """Extract benchmark results from N papers in batched claude CLI calls.
 
-    The model has tool access over ``CACHE_DIR`` and navigates each
-    paper.md independently. Paper contents are NEVER inlined. Returns a
-    dict ``{arxiv_id -> extraction | None}``. None means fetch failed or
-    the model omitted the paper. Successfully-extracted rows (including
-    empty `benchmarks`) are saved to the per-paper cache.
+    On batch-level failure, falls back to per-paper calls so one stuck
+    paper cannot poison the whole batch.
     """
     results: dict[str, dict | None] = {}
 
@@ -659,68 +625,17 @@ def extract_batch(
     if not todo:
         return results
 
-    paper_lines = []
-    for aid in todo:
-        paper_lines.append(f"- arxiv_id={aid}  path={CACHE_DIR / aid / 'paper.md'}")
+    batch_results = _run_one_batch(todo, all_rules, model, timeout)
+    results.update(batch_results)
 
-    system_prompt = _build_system_prompt(all_rules)
-    user_prompt = (
-        "Extract benchmark results from EACH paper listed below.\n\n"
-        "Return ONE entry per paper in the `papers` array, keyed by arxiv_id.\n"
-        "Every arxiv_id below must appear in your output, even if its benchmarks "
-        "array is empty.\n\n"
-        "Use available tools to navigate each paper.md independently. "
-        "Every quote you emit for a paper must come from that paper's file.\n\n"
-        "Papers:\n" + "\n".join(paper_lines)
-    )
-
-    batch_tag = "_".join(todo[:2]) + (f"+{len(todo) - 2}" if len(todo) > 2 else "")
-    log_path = EXTRACTION_LOGS_DIR / f"batch_{batch_tag}.log"
-
-    try:
-        llm_output, n_tool_calls = _call_claude_cli(
-            system_prompt,
-            user_prompt,
-            _batched_schema(),
-            CACHE_DIR.resolve(),
-            model=model,
-            timeout=timeout,
-            log_path=log_path,
-        )
-    except LLMError as e:
-        print(f"    LLM error for batch ({len(todo)} papers): {e}")
-        for aid in todo:
-            results[aid] = None
-        return results
-
-    scope = sorted(_current_benchmark_keys())
-    by_id: dict[str, dict] = {}
-    for p in llm_output.get("papers", []):
-        aid = p.get("arxiv_id")
-        if aid:
-            by_id[aid] = p
-
-    now = _now_iso()
-    for aid in todo:
-        p = by_id.get(aid)
-        if p is None:
-            print(f"    WARN {aid} missing from batch output")
-            results[aid] = None
-            continue
-        record = {
-            "arxiv_id": aid,
-            "extracted_at": now,
-            "model_used": model,
-            "batch_size": len(todo),
-            "batch_tool_calls_total": n_tool_calls,
-            "paper_hash": _paper_hash(aid),
-            "extraction_scope": scope,
-            "benchmarks": p.get("benchmarks", []),
-            "benchmarks_absent": p.get("benchmarks_absent") or {},
-            "confidence": p.get("confidence"),
-        }
-        _save_cached_extraction(aid, record)
-        results[aid] = record
+    # Fallback: if >=50% of the batch failed, retry remaining ones one-by-one.
+    # Protects against a single stuck paper poisoning a whole batch.
+    failed_ids = [aid for aid, r in batch_results.items() if r is None]
+    if len(todo) > 1 and len(failed_ids) >= len(todo) // 2:
+        print(f"    batch degraded ({len(failed_ids)}/{len(todo)} failed) — retrying per-paper")
+        for aid in failed_ids:
+            single = _run_one_batch([aid], all_rules, model, timeout)
+            results.update(single)
 
     return results
 
@@ -733,9 +648,9 @@ def extract_batch(
 def _fetch_s2_citations(arxiv_id: str, limit: int = 1000) -> tuple[list[dict], int]:
     """Return (arxiv-citing papers, total citation count).
 
-    The total count includes non-arxiv citations (conference/journal papers
-    without arxiv preprints) — those cannot be processed by our pipeline but
-    are shown as the coverage denominator to reflect real-world citation scale.
+    Total includes non-arxiv citations (conference/journal papers without
+    arxiv preprints) — those cannot be processed but are shown as the
+    denominator to reflect real-world citation scale.
     """
     headers = {"Accept": "application/json"}
     api_key = os.environ.get("SEMANTIC_SCHOLAR_API_KEY")
@@ -783,16 +698,29 @@ def _fetch_s2_citations(arxiv_id: str, limit: int = 1000) -> tuple[list[dict], i
 app = typer.Typer(help="Extract benchmark scores from arxiv papers via LLM.", add_completion=False)
 
 
+def _load_scan_cache() -> dict:
+    if not SCAN_CACHE_PATH.exists():
+        return {"scanned_at": None, "benchmarks": {}}
+    return json.loads(SCAN_CACHE_PATH.read_text())
+
+
 @app.command()
 def scan(
     benchmark: Annotated[Optional[str], typer.Option(help="Only scan one benchmark.")] = None,
 ) -> None:
-    """Discover citing papers for each benchmark via Semantic Scholar."""
+    """Discover citing papers for each benchmark via Semantic Scholar.
+
+    Results merge into the existing scan_results.json so a single-benchmark
+    rescan does not wipe other benchmarks' entries.
+    """
     if not BENCHMARKS_JSON_PATH.exists():
         print(f"{BENCHMARKS_JSON_PATH} not found.")
         raise typer.Exit(1)
     benchmarks = json.loads(BENCHMARKS_JSON_PATH.read_text())
-    scan_results: dict[str, dict] = {}
+
+    cache = _load_scan_cache()
+    scan_results: dict[str, dict] = dict(cache.get("benchmarks", {}))
+
     total_new = 0
     EXTRACTIONS_DIR.mkdir(parents=True, exist_ok=True)
     extracted_stems = {f.stem for f in EXTRACTIONS_DIR.glob("*.json")}
@@ -831,12 +759,10 @@ def scan(
         json.dumps({"scanned_at": _now_iso(), "benchmarks": scan_results}, indent=2, ensure_ascii=False) + "\n"
     )
 
-    print(f"\n{total_new} new papers across {len(scan_results)} benchmarks")
+    scope = f"benchmark '{benchmark}'" if benchmark else f"{len(scan_results)} benchmarks"
+    print(f"\n{total_new} new papers across {scope}")
     print(f"Wrote {SCAN_CACHE_PATH}")
     print("Run `update_coverage.py` to refresh coverage.json.")
-
-
-DEFAULT_BATCH_SIZE = 30
 
 
 @app.command()
@@ -960,7 +886,7 @@ def pack() -> None:
             bms.sort(key=lambda b: b.get("benchmark", ""))
             for bm in bms:
                 if models := bm.get("models"):
-                    models.sort(key=lambda m: m.get("label", ""))
+                    models.sort(key=lambda m: m.get("name_in_paper", ""))
     EXTRACTIONS_JSON.write_text(json.dumps(entries, indent=2, ensure_ascii=False, sort_keys=False) + "\n")
     print(f"Packed {len(entries)} extractions → {EXTRACTIONS_JSON}")
 
