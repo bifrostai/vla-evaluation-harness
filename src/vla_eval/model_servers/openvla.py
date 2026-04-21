@@ -120,6 +120,7 @@ class OpenVLAModelServer(PredictModelServer):
         return pil
 
     def predict(self, obs: Observation, ctx: SessionContext) -> Action:
+        import os
         import torch
 
         self._load_model()
@@ -129,6 +130,15 @@ class OpenVLAModelServer(PredictModelServer):
         pil_image = self._preprocess_image(obs)
         task_description = obs.get("task_description", "")
         prompt = f"In: What action should the robot take to {task_description}?\nOut:"
+
+        frame_dir = os.environ.get("VLA_ROLLOUT_FRAME_DIR")
+        if frame_dir:
+            os.makedirs(frame_dir, exist_ok=True)
+            idx = getattr(self, "_frame_idx", 0)
+            self._frame_idx = idx + 1
+            pil_image.resize((128, 128)).save(
+                os.path.join(frame_dir, f"frame_{idx:05d}.png")
+            )
 
         inputs = self._processor(prompt, pil_image).to(self._device, dtype=torch.bfloat16)
 
