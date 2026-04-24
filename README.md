@@ -14,7 +14,7 @@
 | **Models ([dexbotic](https://github.com/dexmal/dexbotic))** ![stars](https://img.shields.io/github/stars/dexmal/dexbotic?style=social) | [![DB-CogACT](https://img.shields.io/badge/DB--CogACT-✓-8B5CF6)](configs/model_servers/dexbotic_cogact_libero.yaml) |
 | **Models ([starVLA](https://github.com/starVLA/starVLA))** ![stars](https://img.shields.io/github/stars/starVLA/starVLA?style=social) | [![QwenGR00T](https://img.shields.io/badge/QwenGR00T-✓-8B5CF6)](configs/model_servers/starvla_groot_simpler.yaml) [![QwenOFT](https://img.shields.io/badge/QwenOFT-✓-8B5CF6)](configs/model_servers/starvla_oft_simpler.yaml) [![QwenPI](https://img.shields.io/badge/QwenPI-◇-blue)](configs/model_servers/starvla_pi_simpler.yaml) [![QwenFAST](https://img.shields.io/badge/QwenFAST-✓-8B5CF6)](configs/model_servers/starvla_fast_simpler.yaml) |
 
-<sub>✓ reproduced  |  ◇ integrated, awaiting first reproduction  |  · planned</sub>
+<sub>✓ [reproduced](docs/reproductions/)  |  ◇ integrated, awaiting first reproduction  |  · planned</sub>
 
 **One framework to evaluate any VLA model on any robot simulation benchmark.**
 
