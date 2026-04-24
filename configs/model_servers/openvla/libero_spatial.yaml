@@ -7,3 +7,4 @@ args:
   port: 8000
   jpeg_roundtrip: true
   center_crop: true
+  load_in_8bit: true

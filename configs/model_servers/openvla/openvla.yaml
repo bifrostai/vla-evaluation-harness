@@ -12,3 +12,4 @@ args:
   unnorm_key: bridge_orig
   chunk_size: 1
   port: 8000
+  load_in_8bit: true

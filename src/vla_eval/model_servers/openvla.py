@@ -9,13 +9,17 @@
 #     "pillow>=9.0",
 #     "numpy>=1.24",
 #     "accelerate",
+#     "bitsandbytes>=0.43",
 # ]
+#
+# [[tool.uv.index]]
+# name = "pytorch-cu121"
+# url = "https://download.pytorch.org/whl/cu121"
+# explicit = true
 #
 # [tool.uv.sources]
 # vla-eval = { path = "../../..", editable = true }
-#
-# [tool.uv]
-# exclude-newer = "2026-02-24T00:00:00Z"
+# torch = { index = "pytorch-cu121" }
 # ///
 from __future__ import annotations
 
@@ -50,6 +54,8 @@ class OpenVLAModelServer(PredictModelServer):
         center_crop: bool = False,
         chunk_size: int = 1,
         action_ensemble: str = "newest",
+        load_in_8bit: bool = False,
+        load_in_4bit: bool = False,
         **kwargs: Any,
     ) -> None:
         super().__init__(chunk_size=chunk_size, action_ensemble=action_ensemble, **kwargs)
@@ -57,6 +63,8 @@ class OpenVLAModelServer(PredictModelServer):
         self.unnorm_key = unnorm_key
         self.jpeg_roundtrip = jpeg_roundtrip
         self.center_crop = center_crop
+        self.load_in_8bit = load_in_8bit
+        self.load_in_4bit = load_in_4bit
         self._model = None
         self._processor = None
         self._device = None
@@ -77,14 +85,42 @@ class OpenVLAModelServer(PredictModelServer):
         from transformers import AutoModelForVision2Seq, AutoProcessor
 
         self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info("Loading OpenVLA from %s on %s", self.model_path, self._device)
+        logger.info(
+            "Loading OpenVLA from %s on %s (8bit=%s, 4bit=%s)",
+            self.model_path, self._device, self.load_in_8bit, self.load_in_4bit,
+        )
+
+        if self.load_in_8bit or self.load_in_4bit:
+            import transformers.modeling_utils as _tmu
+
+            _cuda_target = "cuda:0"
+
+            def _fixed_dispatch(model: Any, *args: Any, **kwargs: Any) -> Any:
+                for _n, _p in model.named_parameters():
+                    if _p.device.type == "cpu":
+                        _p.data = _p.data.to(_cuda_target)
+                for _n, _b in model.named_buffers():
+                    if _b.device.type == "cpu":
+                        _b.data = _b.data.to(_cuda_target)
+                model.hf_device_map = {"": 0}
+                return model
+
+            _tmu.dispatch_model = _fixed_dispatch
 
         self._processor = AutoProcessor.from_pretrained(self.model_path, trust_remote_code=True)
-        self._model = AutoModelForVision2Seq.from_pretrained(
-            self.model_path,
-            torch_dtype=torch.bfloat16,
-            trust_remote_code=True,
-        ).to(self._device)
+
+        load_kwargs: dict[str, Any] = {"trust_remote_code": True, "low_cpu_mem_usage": True}
+        if self.load_in_8bit:
+            load_kwargs["load_in_8bit"] = True
+        elif self.load_in_4bit:
+            load_kwargs["load_in_4bit"] = True
+            load_kwargs["bnb_4bit_compute_dtype"] = torch.bfloat16
+        else:
+            load_kwargs["torch_dtype"] = torch.bfloat16
+
+        self._model = AutoModelForVision2Seq.from_pretrained(self.model_path, **load_kwargs)
+        if not (self.load_in_8bit or self.load_in_4bit):
+            self._model = self._model.to(self._device)
         logger.info("OpenVLA model loaded.")
 
     def _preprocess_image(self, obs: Observation) -> Any:
@@ -140,7 +176,8 @@ class OpenVLAModelServer(PredictModelServer):
                 os.path.join(frame_dir, f"frame_{idx:05d}.png")
             )
 
-        inputs = self._processor(prompt, pil_image).to(self._device, dtype=torch.bfloat16)
+        input_dtype = torch.float16 if (self.load_in_8bit or self.load_in_4bit) else torch.bfloat16
+        inputs = self._processor(prompt, pil_image).to(self._device, dtype=input_dtype)
 
         kwargs: dict[str, Any] = {"do_sample": False}
         if self.unnorm_key:
