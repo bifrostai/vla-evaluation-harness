@@ -1,0 +1,11 @@
+# OpenVLA quantized — base model (zero-shot), 8-bit weights
+# Fits on 16 GB consumer GPUs (~7.5 GB weights). Flip to load_in_4bit for
+# tighter VRAM budgets (~3.8 GB weights).
+
+script: "src/vla_eval/model_servers/openvla_quantized.py"
+args:
+  model_path: openvla/openvla-7b
+  unnorm_key: bridge_orig
+  chunk_size: 1
+  port: 8000
+  load_in_8bit: true

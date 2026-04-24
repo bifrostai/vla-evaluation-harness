@@ -1,0 +1,10 @@
+# OpenVLA quantized — LIBERO-Spatial (LoRA finetuned), 8-bit weights
+script: "src/vla_eval/model_servers/openvla_quantized.py"
+args:
+  model_path: openvla/openvla-7b-finetuned-libero-spatial
+  unnorm_key: libero_spatial
+  chunk_size: 1
+  port: 8000
+  jpeg_roundtrip: true
+  center_crop: true
+  load_in_8bit: true
