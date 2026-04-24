@@ -76,7 +76,8 @@ def _exec_docker(docker: str, cmd: list[str], container_name: str) -> None:
         _stop_container()
         sys.exit(128 + signum)
 
-    signal.signal(signal.SIGHUP, _handle_signal)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, _handle_signal)
     signal.signal(signal.SIGTERM, _handle_signal)
 
     try:
@@ -185,17 +186,27 @@ def _run_via_docker(
 
     # Rewrite config for Docker: output_dir must point to the container-side mount,
     # not the host absolute path which doesn't exist inside the container.
+    # Write the temp config inside results_dir so it's covered by the same bind
+    # mount that Docker Desktop already shares reliably (avoids Windows file-mount
+    # quirks where AppData\Local\Temp files mount as directories).
     import tempfile
 
     docker_config = dict(config)
     docker_config["output_dir"] = "/workspace/results"
-    docker_config_fd, docker_config_path = tempfile.mkstemp(suffix=".yaml", prefix="vla-eval-docker-")
+    docker_tmp_dir = Path(results_dir) / ".vla-eval-tmp"
+    docker_tmp_dir.mkdir(parents=True, exist_ok=True)
+    docker_config_fd, docker_config_path = tempfile.mkstemp(
+        suffix=".yaml", prefix="vla-eval-docker-", dir=str(docker_tmp_dir)
+    )
     try:
         with os.fdopen(docker_config_fd, "w") as f:
             yaml.safe_dump(docker_config, f)
     except Exception:
         os.close(docker_config_fd)
         raise
+    docker_config_container_path = (
+        f"/workspace/results/.vla-eval-tmp/{Path(docker_config_path).name}"
+    )
 
     container_name = f"vla-eval-{os.getpid()}"
 
@@ -207,7 +218,6 @@ def _run_via_docker(
         "--name", container_name,
         "--network", "host",
         "-v", f"{results_dir}:/workspace/results",
-        "-v", f"{docker_config_path}:/tmp/eval_config.yaml:ro",
     ]
     # fmt: on
 
@@ -232,7 +242,7 @@ def _run_via_docker(
     else:
         cmd.extend(gpu_docker_flag(docker_cfg.gpus))
 
-    cmd.extend([docker_cfg.image, "run", "--no-docker", "--config", "/tmp/eval_config.yaml"])
+    cmd.extend([docker_cfg.image, "run", "--no-docker", "--config", docker_config_container_path])
     if shard_id is not None:
         cmd.extend(["--shard-id", str(shard_id), "--num-shards", str(num_shards)])
 
