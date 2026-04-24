@@ -23,10 +23,11 @@ Systematic verification that vla-eval reproduces published VLA model scores acro
 | | Qwen3-OFT | ✅<br>**96.8%** / [97.8%²](https://huggingface.co/StarVLA/Qwen3-VL-OFT-LIBERO-4in1) | · | ⬜<br>[42.7%](https://huggingface.co/StarVLA/Qwen3VL-OFT-Bridge-RT-1) | · | · |
 | | Qwen3-PI | ⬜<br>[95.7%](https://huggingface.co/StarVLA/Qwen3-VL-PI-LIBERO-4in1) | · | ⬜<br>60.9%† | · | · |
 | | Qwen3-GR00T | ⬜<br>96.5%† | ⬜<br>3.76† | ✅<br>**66.7%** / [65.3%](https://huggingface.co/StarVLA/Qwen3VL-GR00T-Bridge-RT-1) | · | · |
+| [DravenALG/VLANeXt](https://github.com/DravenALG/VLANeXt) | [VLANeXt](https://arxiv.org/abs/2602.18532) | ✅<br>[**96.9%**](https://github.com/allenai/vla-evaluation-harness/pull/34) / [97.4%](https://huggingface.co/DravenALG/VLANeXt)³ | · | · | · | · |
 
 SE = SimplerEnv. SE GR = Google Robot VM.
 
-¹ Community checkpoint (not official NVIDIA). ² Spatial suite only (reported 97.8%); 4-suite avg is 96.6%. † Checkpoint not publicly available on HuggingFace.
+¹ Community checkpoint (not official NVIDIA). ² Spatial suite only (reported 97.8%); 4-suite avg is 96.6%. ³ 4-suite LIBERO average (Spatial 98.2, Object 98.8, Goal 97.0, Long 93.6). † Checkpoint not publicly available on HuggingFace.
 
 ## Other Benchmarks
 
@@ -45,7 +46,7 @@ SE = SimplerEnv. SE GR = Google Robot VM.
 ¹ Counting suite only (4/16 tasks). Full 4-suite evaluation pending.
 ² Pick-and-Place only on `procthor-objaverse/FrankaPickandPlaceHardBench` (200 ep). Other task types (pick, open, close, door, navigation) and scene datasets (ithor, procthor-10k, holodeck) not yet reproduced.
 
-**Cell format:** status / [reported%](HF checkpoint link). Bold = our reproduced score.
+**Cell format:** status / [reported%](HF checkpoint link). Bold = our reproduced score. Per-codebase reproduction details live in the per-codebase docs linked below; rows without a per-codebase doc (currently VLANeXt) hyperlink the bolded score to the landing PR instead.
 
 **Status:** ✅ within 95% CI · 🟡 outside CI but ≤5pp · 🔧 in progress or >5pp with known cause · ⬜ not attempted · `·` no score / no checkpoint. CI is binomial at p=0.95 (±1.9pp for 500 episodes).
 
