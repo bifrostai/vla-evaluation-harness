@@ -1,10 +1,4 @@
-"""``vla-eval data`` subcommand handlers.
-
-Provides a uniform fetch flow for benchmarks whose dataset is licensed
-independently of the harness (e.g. BEHAVIOR-1K's BEHAVIOR Dataset
-ToS).  See :class:`vla_eval.benchmarks.base.DataRequirement` and
-:meth:`vla_eval.benchmarks.base.Benchmark.data_requirements`.
-"""
+"""``vla-eval data`` subcommand: fetch externally-licensed benchmark datasets."""
 
 from __future__ import annotations
 
@@ -16,23 +10,14 @@ import sys
 from pathlib import Path
 
 from vla_eval.benchmarks.base import Benchmark, DataRequirement
+from vla_eval.cli._console import stderr_console as _stderr_console
 from vla_eval.cli.config_loader import load_config as _load_config
 from vla_eval.config import DockerConfig
+from vla_eval.docker_resources import gpu_docker_flag
 from vla_eval.registry import resolve_import_string
 
 
-def _stderr_console():  # pragma: no cover — same shim cmd_run uses
-    from rich.console import Console
-
-    return Console(stderr=True, soft_wrap=True)
-
-
-def _resolve_benchmark_class(config: dict) -> tuple[type[Benchmark], str]:
-    """Return ``(class, cache_subdir)`` for the first benchmark in config.
-
-    ``cache_subdir`` is the module-path's last package segment, e.g.
-    ``vla_eval.benchmarks.behavior1k.benchmark:X`` → ``behavior1k``.
-    """
+def _resolve_benchmark_class(config: dict) -> type[Benchmark]:
     benchmarks = config.get("benchmarks") or []
     if not benchmarks:
         raise ValueError("config has no 'benchmarks' entries")
@@ -42,48 +27,39 @@ def _resolve_benchmark_class(config: dict) -> tuple[type[Benchmark], str]:
     cls = resolve_import_string(import_string)
     if not (isinstance(cls, type) and issubclass(cls, Benchmark)):
         raise TypeError(f"resolved {import_string} to {cls!r}, which is not a Benchmark subclass")
-    module_path = import_string.split(":", 1)[0]
-    parts = module_path.split(".")
-    # Expect …benchmarks.<key>.benchmark — take the second-to-last part.
-    cache_subdir = parts[-2] if len(parts) >= 2 else parts[-1]
-    return cls, cache_subdir
+    return cls
 
 
-def _default_host_data_dir(cache_subdir: str) -> Path:
-    """Return ``${VLA_EVAL_DATA_DIR}/<cache_subdir>`` or the XDG-style default."""
+def _default_host_data_dir(cache_key: str) -> Path:
+    """``${VLA_EVAL_DATA_DIR}/<cache_key>`` or the XDG-style default."""
     base = os.environ.get("VLA_EVAL_DATA_DIR")
     if base:
-        return Path(base).expanduser() / cache_subdir
-    return Path.home() / ".cache" / "vla-eval" / cache_subdir
+        return Path(base).expanduser() / cache_key
+    return Path.home() / ".cache" / "vla-eval" / cache_key
 
 
 def _build_docker_argv(
-    image: str,
     docker_cfg: DockerConfig,
     host_dir: Path,
     requirement: DataRequirement,
     extra_gpus: str | None,
 ) -> list[str]:
-    """Build the ``docker run`` argv that downloads the dataset."""
     argv: list[str] = ["docker", "run", "--rm"]
-    gpus = extra_gpus or docker_cfg.gpus or "all"
-    argv.extend(["--gpus", gpus])
+    argv.extend(gpu_docker_flag(extra_gpus or docker_cfg.gpus))
     for env_pair in docker_cfg.env:
         argv.extend(["-e", env_pair])
     argv.extend(["-v", f"{host_dir}:{requirement.container_data_path}"])
-    argv.append(image)
+    argv.append(docker_cfg.image or "")
     argv.extend(requirement.download_command)
     return argv
 
 
 def cmd_data_fetch(args: argparse.Namespace) -> None:
-    """Fetch the external dataset for a benchmark, mounted at the
-    canonical host cache directory."""
     con = _stderr_console()
     config = _load_config(args.config)
 
     try:
-        bench_cls, cache_subdir = _resolve_benchmark_class(config)
+        bench_cls = _resolve_benchmark_class(config)
     except (TypeError, ValueError) as exc:
         con.print(f"[red]ERROR: {exc}[/red]")
         sys.exit(1)
@@ -93,8 +69,7 @@ def cmd_data_fetch(args: argparse.Namespace) -> None:
         con.print(f"[yellow]{bench_cls.__name__} declares no external data requirement; nothing to fetch.[/yellow]")
         return
 
-    accepted = set(args.accept_license or [])
-    if requirement.license_id not in accepted:
+    if requirement.license_id not in set(args.accept_license):
         con.print(
             f"[red]ERROR: this dataset requires accepting licence '{requirement.license_id}'.[/red]\n"
             f"  Read: {requirement.license_url}\n"
@@ -102,7 +77,9 @@ def cmd_data_fetch(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    host_dir = Path(args.data_dir).expanduser().resolve() if args.data_dir else _default_host_data_dir(cache_subdir)
+    host_dir = (
+        Path(args.data_dir).expanduser().resolve() if args.data_dir else _default_host_data_dir(requirement.cache_key)
+    )
     host_dir.mkdir(parents=True, exist_ok=True)
 
     marker = host_dir / requirement.marker
@@ -121,13 +98,7 @@ def cmd_data_fetch(args: argparse.Namespace) -> None:
         con.print("[red]ERROR: 'docker' not found on PATH[/red]")
         sys.exit(1)
 
-    argv = _build_docker_argv(
-        docker_cfg.image,
-        docker_cfg,
-        host_dir,
-        requirement,
-        extra_gpus=getattr(args, "gpus", None),
-    )
+    argv = _build_docker_argv(docker_cfg, host_dir, requirement, extra_gpus=getattr(args, "gpus", None))
 
     con.print(f"[bold]Fetching data → {host_dir}[/bold]")
     con.print(f"  image: {docker_cfg.image}")
@@ -145,7 +116,6 @@ def cmd_data_fetch(args: argparse.Namespace) -> None:
 
 
 def register(subparsers: argparse._SubParsersAction) -> None:
-    """Wire ``data fetch`` into the top-level ``vla-eval`` parser."""
     data_parser = subparsers.add_parser(
         "data",
         help="Manage external benchmark datasets",
@@ -179,7 +149,7 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         "--data-dir",
         default=None,
         help="Override host data directory. Defaults to "
-        "${VLA_EVAL_DATA_DIR}/<benchmark> or ~/.cache/vla-eval/<benchmark>.",
+        "${VLA_EVAL_DATA_DIR}/<cache_key> or ~/.cache/vla-eval/<cache_key>.",
     )
     fetch_parser.add_argument(
         "--gpus",

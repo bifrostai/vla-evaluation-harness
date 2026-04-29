@@ -35,34 +35,19 @@ class StepResult:
 
 @dataclass(frozen=True)
 class DataRequirement:
-    """External-data requirement that can't be redistributed in the image.
+    """Declares a benchmark's externally-licensed dataset.
 
-    Benchmarks whose dataset is licensed independently of the harness
-    (e.g. BEHAVIOR-1K's BEHAVIOR Dataset ToS) declare a
-    ``DataRequirement`` from their ``data_requirements()`` classmethod
-    so the CLI can drive a uniform fetch flow.
-
-    Fields:
-        license_id: Token a user passes to ``--accept-license`` to
-            opt in.  Should be lower-kebab-case and stable
-            (e.g. ``"behavior-dataset-tos"``).
-        license_url: Where to read the licence terms.
-        container_data_path: Path inside the docker image where the
-            data must be mounted.  Used as the mount target for both
-            ``vla-eval data fetch`` (read-write) and ``vla-eval run``
-            (read-only).
-        marker: Path relative to the *host* data directory that, once
-            present, signals the dataset is fetched.  Used for the
-            "already-fetched" short-circuit.  Pick something that the
-            download command produces last (a final asset directory,
-            for instance).
-        download_command: argv that the docker container will run, with
-            ``container_data_path`` mounted read-write, to populate
-            the dataset.
+    The CLI uses this to drive ``vla-eval data fetch``: it mounts
+    ``${VLA_EVAL_DATA_DIR:-~/.cache/vla-eval}/<cache_key>`` at
+    ``container_data_path`` (read-write) and runs ``download_command``.
+    ``marker`` is a host-relative path the download produces last; its
+    presence short-circuits re-fetches.  ``license_id`` is the
+    user-facing kebab-case token compared against ``--accept-license``.
     """
 
     license_id: str
     license_url: str
+    cache_key: str
     container_data_path: str
     marker: str
     download_command: tuple[str, ...]
@@ -169,14 +154,9 @@ class Benchmark(ABC):
 
     @classmethod
     def data_requirements(cls) -> DataRequirement | None:
-        """Declare an external-data dependency that the harness can fetch.
+        """Optional: declare an external dataset for ``vla-eval data fetch``.
 
-        Most benchmarks bundle their data inside the docker image and
-        return ``None`` (the default).  Benchmarks whose dataset is
-        licensed independently of the harness (e.g. BEHAVIOR-1K)
-        return a populated :class:`DataRequirement` so
-        ``vla-eval data fetch -c <config>`` can drive a uniform
-        download flow.
+        Default ``None`` — most benchmarks bundle data in the docker image.
         """
         return None
 

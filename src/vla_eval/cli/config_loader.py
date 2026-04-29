@@ -9,13 +9,11 @@ import yaml
 
 
 def load_config(path: str) -> dict[str, Any]:
-    """Load a YAML config file, resolving ``extends`` chains.
+    """Load a YAML config file, resolving ``extends`` chains and
+    ``${oc.env:VAR,default}`` interpolations.
 
     If the YAML contains ``extends: relative/path.yaml``, the base config is
     loaded first (recursively) and the child is merged on top via OmegaConf.
-    The result is always returned as a plain ``dict[str, Any]``.
-
-    Configs without ``extends`` are loaded identically to ``yaml.safe_load``.
     """
     from omegaconf import OmegaConf
 

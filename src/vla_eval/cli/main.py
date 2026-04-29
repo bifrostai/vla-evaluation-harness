@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import functools
 import logging
 import os
 import sys
@@ -12,19 +11,12 @@ from typing import Any
 
 import yaml
 
+from vla_eval.cli._console import stderr_console as _stderr_console
 from vla_eval.cli.config_loader import load_config as _load_config
 from vla_eval.config import DockerConfig
 from vla_eval.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
-
-
-@functools.lru_cache(maxsize=None)
-def _stderr_console():
-    """Return a shared Console that writes to stderr (lazy import)."""
-    from rich.console import Console
-
-    return Console(stderr=True, highlight=False)
 
 
 def _setup_logging(verbose: bool = False) -> None:

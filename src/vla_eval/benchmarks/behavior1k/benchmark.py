@@ -219,13 +219,9 @@ class Behavior1KBenchmark(StepBenchmark):
 
     @classmethod
     def data_requirements(cls) -> DataRequirement:
-        """Declare the BEHAVIOR Dataset / OmniGibson-asset download.
-
-        These are the three canonical helpers the upstream
-        ``OmniGibson`` README points users at; they're idempotent
-        (skip when files already exist) so re-running ``data fetch``
-        on a populated directory is cheap.
-        """
+        # The download_* helpers are idempotent (no-op when files exist);
+        # the 2025-challenge task instances are written last, so its
+        # presence implies the prior two completed.
         download_script = (
             "from omnigibson.utils.asset_utils import ("
             "download_omnigibson_robot_assets, "
@@ -238,10 +234,8 @@ class Behavior1KBenchmark(StepBenchmark):
         return DataRequirement(
             license_id="behavior-dataset-tos",
             license_url="https://behavior.stanford.edu/dataset",
+            cache_key="behavior1k",
             container_data_path="/app/BEHAVIOR-1K/datasets",
-            # The 2025-challenge task instances are downloaded last,
-            # so the directory's presence implies the prior two
-            # download_* calls also completed.
             marker="2025-challenge-task-instances",
             download_command=(
                 "conda",
