@@ -77,9 +77,7 @@ def cmd_data_fetch(args: argparse.Namespace) -> None:
         )
         sys.exit(1)
 
-    host_dir = (
-        Path(args.data_dir).expanduser().resolve() if args.data_dir else _default_host_data_dir(requirement.cache_key)
-    )
+    host_dir = _default_host_data_dir(requirement.cache_key)
     host_dir.mkdir(parents=True, exist_ok=True)
 
     marker = host_dir / requirement.marker
@@ -144,12 +142,6 @@ def register(subparsers: argparse._SubParsersAction) -> None:
         default=[],
         metavar="ID",
         help="License ID to opt into (e.g. 'behavior-dataset-tos'). Repeatable.",
-    )
-    fetch_parser.add_argument(
-        "--data-dir",
-        default=None,
-        help="Override host data directory. Defaults to "
-        "${VLA_EVAL_DATA_DIR}/<cache_key> or ~/.cache/vla-eval/<cache_key>.",
     )
     fetch_parser.add_argument(
         "--gpus",

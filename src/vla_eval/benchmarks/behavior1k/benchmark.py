@@ -499,6 +499,7 @@ class Behavior1KBenchmark(StepBenchmark):
 
     def get_metadata(self) -> dict[str, Any]:
         return {
+            "action_dim": R1PRO_ACTION_DIM,
             "max_steps": self._max_steps if self._max_steps is not None else 5000,
             "robot": "R1Pro",
             "n_tasks": len(self._task_names),
