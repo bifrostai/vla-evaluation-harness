@@ -29,8 +29,8 @@ import logging
 import time
 from typing import Any
 
-import anyio
 import numpy as np
+from anyio.to_thread import run_sync as _run_in_thread
 
 from vla_eval.benchmarks.base import StepBenchmark, StepResult
 from vla_eval.specs import IMAGE_RGB, LANGUAGE, RAW, DimSpec
@@ -237,13 +237,13 @@ class Behavior1KBenchmark(StepBenchmark):
         _orig_signal = None
         if threading.current_thread() is not threading.main_thread():
             _orig_signal = _signal.signal
-            _signal.signal = lambda *a, **kw: None  # type: ignore[assignment]
+            setattr(_signal, "signal", lambda *a, **kw: None)
 
         try:
             return self._make_env_inner(task_name)
         finally:
             if _orig_signal is not None:
-                _signal.signal = _orig_signal
+                setattr(_signal, "signal", _orig_signal)
 
     def _make_env_inner(self, task_name: str) -> Any:
         import omnigibson as og
@@ -464,7 +464,7 @@ class Behavior1KBenchmark(StepBenchmark):
     # Booting Isaac Sim from the orchestrator's main thread tears down
     # the running asyncio event loop (SimulationApp installs its own),
     # which makes the next `await conn.act(...)` raise NoEventLoopError.
-    # Off-loading to anyio.to_thread.run_sync keeps the orchestrator
+    # Off-loading to ``anyio.to_thread.run_sync`` keeps the orchestrator
     # loop intact while Isaac Sim does its synchronous work.
     # ------------------------------------------------------------------
 
@@ -478,11 +478,11 @@ class Behavior1KBenchmark(StepBenchmark):
         # offloaded to the worker thread, which is what actually trashes
         # the asyncio event loop.
         self._init_og()
-        raw_obs = await anyio.to_thread.run_sync(self.reset, task)  # type: ignore[attr-defined]
+        raw_obs = await _run_in_thread(self.reset, task)
         self._last_result = StepResult(obs=raw_obs, reward=0.0, done=False, info={})
 
     async def apply_action(self, action: Action) -> None:
-        self._last_result = await anyio.to_thread.run_sync(self.step, action)  # type: ignore[attr-defined]
+        self._last_result = await _run_in_thread(self.step, action)
 
     def get_action_spec(self) -> dict[str, DimSpec]:
         return {

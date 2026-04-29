@@ -86,7 +86,7 @@ class Behavior1KDemoReplayModelServer(PredictModelServer):
     def _load(self) -> np.ndarray:
         if self._actions is not None:
             return self._actions
-        import pandas as pd  # type: ignore[import-untyped]
+        import pandas as pd
 
         # ``columns=["action"]`` skips embedded image/state columns —
         # LeRobot parquets can be multi-GB once those load.
