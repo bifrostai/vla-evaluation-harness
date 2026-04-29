@@ -156,13 +156,22 @@ class Behavior1KBenchmark(StepBenchmark):
         env_wrapper_target: Hydra ``_target_`` for the env wrapper.  By
             default we use OmniGibson's ``EnvironmentWrapper`` no-op
             wrapper; override to plug in challenge-specific behaviour.
-        task_instance_id: Per-instance TRO state to load after ``env.reset()``,
-            mirroring the official ``Evaluator.load_task_instance``.
-            Without this the env starts from BehaviorTask's default
-            instance (idx 0); with it set, the cached
+        task_instance_id: Per-instance TRO state(s) to load after
+            ``env.reset()``, mirroring the official
+            ``Evaluator.load_task_instance``.  Without this the env
+            starts from BehaviorTask's default instance (idx 0); with
+            it set, the cached
             ``<scene>_task_<activity>_instances/<...>-tro_state.json``
             is applied so the initial object placement matches the
             recorded demos.  Required for demo-replay reproductions.
+
+            Accepts:
+                - ``None`` — use BehaviorTask's default instance every
+                  episode (no TRO state load).
+                - ``int`` — fix the same instance for every episode.
+                - ``list[int]`` — sweep instances; episode ``i`` uses
+                  ``ids[i % len(ids)]``.  Use this to reproduce the
+                  challenge protocol (50 tasks × 10 instances).
     """
 
     def __init__(
@@ -173,7 +182,7 @@ class Behavior1KBenchmark(StepBenchmark):
         send_proprio: bool = False,
         camera_names: list[str] | None = None,
         env_wrapper_target: str = "omnigibson.envs.env_wrapper.EnvironmentWrapper",
-        task_instance_id: int | None = None,
+        task_instance_id: int | list[int] | None = None,
     ) -> None:
         super().__init__()
         if tasks is not None:
@@ -189,7 +198,16 @@ class Behavior1KBenchmark(StepBenchmark):
         if unknown_cams:
             raise ValueError(f"Unknown R1Pro cameras: {unknown_cams}. Valid: {list(R1PRO_CAMERAS)}")
         self._env_wrapper_target = env_wrapper_target
-        self._task_instance_id = task_instance_id
+        # Normalize int|list|None to list[int]|None so the reset() path
+        # can index by ``episode_idx`` uniformly.
+        if task_instance_id is None:
+            self._task_instance_ids: list[int] | None = None
+        elif isinstance(task_instance_id, int):
+            self._task_instance_ids = [task_instance_id]
+        else:
+            if not task_instance_id:
+                raise ValueError("task_instance_id list must not be empty")
+            self._task_instance_ids = [int(i) for i in task_instance_id]
 
         self._env: Any = None
         self._current_task_name: str | None = None
@@ -312,8 +330,13 @@ class Behavior1KBenchmark(StepBenchmark):
         # ``Evaluator.load_task_instance``).  When unset, BehaviorTask
         # uses its default instance (idx 0) — the env still runs, but
         # object placements may diverge from a particular demo.
-        if self._task_instance_id is not None:
-            obs = self._load_task_instance(self._task_instance_id)
+        # When a list is provided, sweep instances by ``episode_idx``
+        # so consecutive episodes hit different recorded states (the
+        # 50 task × 10 instance challenge protocol).
+        if self._task_instance_ids is not None:
+            episode_idx = int(task.get("episode_idx", 0))
+            instance_id = self._task_instance_ids[episode_idx % len(self._task_instance_ids)]
+            obs = self._load_task_instance(instance_id)
         return obs
 
     def _load_task_instance(self, instance_id: int) -> Any:

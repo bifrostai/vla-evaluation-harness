@@ -80,8 +80,11 @@ class Behavior1KDemoReplayModelServer(PredictModelServer):
         self.on_overrun = on_overrun
 
         self._actions: np.ndarray | None = None
-        self._current_episode_id: str | None = None
-        self._step_idx: int = 0
+        # ``PredictModelServer`` may serve concurrent benchmark sessions
+        # (one connection per shard), so the step cursor has to be
+        # keyed per (session, episode).  ``on_episode_start`` /
+        # ``on_episode_end`` keep the dict bounded.
+        self._step_idx: dict[tuple[str, str], int] = {}
 
     def _load(self) -> np.ndarray:
         if self._actions is not None:
@@ -109,14 +112,19 @@ class Behavior1KDemoReplayModelServer(PredictModelServer):
             "language": LANGUAGE,
         }
 
+    async def on_episode_start(self, config: dict[str, Any], ctx: SessionContext) -> None:
+        await super().on_episode_start(config, ctx)
+        self._step_idx[(ctx.session_id, ctx.episode_id)] = 0
+
+    async def on_episode_end(self, result: dict[str, Any], ctx: SessionContext) -> None:
+        self._step_idx.pop((ctx.session_id, ctx.episode_id), None)
+        await super().on_episode_end(result, ctx)
+
     def predict(self, obs: Observation, ctx: SessionContext | None = None) -> Action:
         actions = self._load()
-        ep_id = str(getattr(ctx, "episode_id", "default") or "default") if ctx is not None else "default"
-        if ep_id != self._current_episode_id:
-            self._current_episode_id = ep_id
-            self._step_idx = 0
-        idx = self._step_idx
-        self._step_idx += 1
+        key = (ctx.session_id, ctx.episode_id) if ctx is not None else ("", "")
+        idx = self._step_idx.get(key, 0)
+        self._step_idx[key] = idx + 1
 
         if idx < len(actions):
             return {"actions": actions[idx].copy()}

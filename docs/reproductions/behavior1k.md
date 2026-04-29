@@ -114,7 +114,9 @@ test set.
 
 ```bash
 # 1. Build the image (heavy: ~17 min, 23.5 GB).
-docker/build.sh behavior1k
+#    The behavior1k Dockerfile is gated behind a licence opt-in
+#    (NVIDIA Omniverse EULA — https://docs.omniverse.nvidia.com/eula/).
+docker/build.sh behavior1k --accept-license behavior1k
 
 # 2. Download the dataset (~35 GiB).  Mount-target inside the image
 #    is /app/BEHAVIOR-1K/datasets — that's where gm.DATA_PATH points.
