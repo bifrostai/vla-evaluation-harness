@@ -33,26 +33,6 @@ class StepResult:
     info: dict[str, Any]
 
 
-@dataclass(frozen=True)
-class DataRequirement:
-    """Declares a benchmark's externally-licensed dataset.
-
-    The CLI uses this to drive ``vla-eval data fetch``: it mounts
-    ``${VLA_EVAL_DATA_DIR:-~/.cache/vla-eval}/<cache_key>`` at
-    ``container_data_path`` (read-write) and runs ``download_command``.
-    ``marker`` is a host-relative path the download produces last; its
-    presence short-circuits re-fetches.  ``license_id`` is the
-    user-facing kebab-case token compared against ``--accept-license``.
-    """
-
-    license_id: str
-    license_url: str
-    cache_key: str
-    container_data_path: str
-    marker: str
-    download_command: tuple[str, ...]
-
-
 # ---------------------------------------------------------------------------
 # Async Benchmark ABC (parent)
 # ---------------------------------------------------------------------------
@@ -151,14 +131,6 @@ class Benchmark(ABC):
     def get_metadata(self) -> dict[str, Any]:
         """Return benchmark defaults and metadata. Optional override."""
         return {}
-
-    @classmethod
-    def data_requirements(cls) -> DataRequirement | None:
-        """Optional: declare an external dataset for ``vla-eval data fetch``.
-
-        Default ``None`` — most benchmarks bundle data in the docker image.
-        """
-        return None
 
     def cleanup(self) -> None:
         """Release benchmark resources (environments, renderers, etc.). Optional override."""

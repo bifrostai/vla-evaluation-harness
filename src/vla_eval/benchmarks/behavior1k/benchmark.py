@@ -32,7 +32,7 @@ from typing import Any
 import numpy as np
 from anyio.to_thread import run_sync as _run_in_thread
 
-from vla_eval.benchmarks.base import DataRequirement, StepBenchmark, StepResult
+from vla_eval.benchmarks.base import StepBenchmark, StepResult
 from vla_eval.specs import IMAGE_RGB, LANGUAGE, RAW, DimSpec
 from vla_eval.types import Action, EpisodeResult, Observation, Task
 
@@ -212,42 +212,6 @@ class Behavior1KBenchmark(StepBenchmark):
         self._env: Any = None
         self._current_task_name: str | None = None
         self._available_tasks: dict[str, Any] | None = None
-
-    # ------------------------------------------------------------------
-    # Data fetch
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def data_requirements(cls) -> DataRequirement:
-        # The download_* helpers are idempotent (no-op when files exist);
-        # the 2025-challenge task instances are written last, so its
-        # presence implies the prior two completed.
-        download_script = (
-            "from omnigibson.utils.asset_utils import ("
-            "download_omnigibson_robot_assets, "
-            "download_behavior_1k_assets, "
-            "download_2025_challenge_task_instances); "
-            "download_omnigibson_robot_assets(); "
-            "download_behavior_1k_assets(accept_license=True); "
-            "download_2025_challenge_task_instances()"
-        )
-        return DataRequirement(
-            license_id="behavior-dataset-tos",
-            license_url="https://behavior.stanford.edu/dataset",
-            cache_key="behavior1k",
-            container_data_path="/app/BEHAVIOR-1K/datasets",
-            marker="2025-challenge-task-instances",
-            download_command=(
-                "conda",
-                "run",
-                "--no-capture-output",
-                "-n",
-                "behavior",
-                "python",
-                "-c",
-                download_script,
-            ),
-        )
 
     # ------------------------------------------------------------------
     # Lazy initialization
