@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import functools
 import logging
 import os
 import sys
@@ -12,19 +11,16 @@ from typing import Any
 
 import yaml
 
+from vla_eval.cli._console import stderr_console as _stderr_console
+from vla_eval.cli._docker import (
+    check_docker_daemon as _check_docker_daemon,
+    ensure_image_local as _ensure_docker_image,
+)
 from vla_eval.cli.config_loader import load_config as _load_config
 from vla_eval.config import DockerConfig
 from vla_eval.orchestrator import Orchestrator
 
 logger = logging.getLogger(__name__)
-
-
-@functools.lru_cache(maxsize=None)
-def _stderr_console():
-    """Return a shared Console that writes to stderr (lazy import)."""
-    from rich.console import Console
-
-    return Console(stderr=True, highlight=False)
 
 
 def _setup_logging(verbose: bool = False) -> None:
@@ -38,7 +34,6 @@ def _setup_logging(verbose: bool = False) -> None:
 
 
 def _inside_docker() -> bool:
-    """Check if we are already running inside a Docker container."""
     return Path("/.dockerenv").exists()
 
 
@@ -88,61 +83,12 @@ def _exec_docker(docker: str, cmd: list[str], container_name: str) -> None:
         sys.exit(130)
 
 
-def _check_docker_daemon(docker: str) -> None:
-    """Verify Docker daemon is reachable."""
-    import subprocess
-
-    result = subprocess.run([docker, "info"], capture_output=True)
-    if result.returncode != 0:
-        _stderr_console().print(
-            "[red]ERROR: Docker daemon is not running.[/red]\n  Start it with: sudo systemctl start docker",
-        )
-        sys.exit(1)
-
-
-def _image_exists_locally(docker: str, image: str) -> bool:
-    """Check if a Docker image exists locally."""
-    import subprocess
-
-    result = subprocess.run([docker, "image", "inspect", image], capture_output=True)
-    return result.returncode == 0
-
-
-def _ensure_docker_image(docker: str, image: str, auto_yes: bool) -> None:
-    """Ensure Docker image is available, pulling with confirmation if needed."""
-    import subprocess
-
-    if _image_exists_locally(docker, image):
-        return
-
-    con = _stderr_console()
-    con.print(f"\n[yellow]⚠  Docker image '{image}' not found locally.[/yellow]")
-    con.print("   Benchmark images are typically large (tens of GB).")
-    con.print("   This may take a while and use significant disk space.\n")
-
-    if not auto_yes:
-        if not sys.stdin.isatty():
-            con.print("[red]ERROR: Cannot confirm in non-interactive mode. Use --yes to skip confirmation.[/red]")
-            sys.exit(1)
-        answer = input("Proceed with docker pull? [y/N] ")
-        if answer.strip().lower() not in ("y", "yes"):
-            con.print("Aborted.")
-            sys.exit(0)
-
-    con.print(f"Pulling {image} ...")
-    ret = subprocess.call([docker, "pull", image])
-    if ret != 0:
-        con.print(f"[red]ERROR: docker pull failed (exit code {ret}).[/red]")
-        sys.exit(1)
-
-
 def _resolve_dev_src() -> Path:
     """Find the host ``src/`` directory for ``--dev`` bind-mount."""
-    # 1. CWD (running from repo root)
     cwd_src = Path.cwd() / "src"
     if (cwd_src / "vla_eval").is_dir():
         return cwd_src.resolve()
-    # 2. Editable install: __file__ lives under src/vla_eval/
+    # Editable install: ``vla_eval.__file__`` lives under ``src/vla_eval/``.
     import vla_eval
 
     pkg_parent = Path(vla_eval.__file__).resolve().parent.parent
@@ -160,6 +106,7 @@ def _run_via_docker(
     dev: bool = False,
     shard_id: int | None = None,
     num_shards: int | None = None,
+    accept_license: list[str] | None = None,
 ) -> None:
     """Execute the evaluation inside a Docker container."""
     import shutil
@@ -183,8 +130,7 @@ def _run_via_docker(
     results_dir = str(Path(config.get("output_dir", "./results")).resolve())
     Path(results_dir).mkdir(parents=True, exist_ok=True)
 
-    # Rewrite config for Docker: output_dir must point to the container-side mount,
-    # not the host absolute path which doesn't exist inside the container.
+    # output_dir must point to the container mount; the host absolute path doesn't exist inside.
     import tempfile
 
     docker_config = dict(config)
@@ -199,7 +145,7 @@ def _run_via_docker(
 
     container_name = f"vla-eval-{os.getpid()}"
 
-    from vla_eval.docker_resources import gpu_docker_flag, shard_docker_flags
+    from vla_eval.docker_resources import gpu_docker_flag, shard_docker_flags, tty_docker_flags
 
     # fmt: off
     cmd: list[str] = [
@@ -211,19 +157,24 @@ def _run_via_docker(
     ]
     # fmt: on
 
-    # Dev mode: mount host src/ into container (requires editable install in image)
+    # Forward stdin/TTY for in-container licence prompts.
+    cmd.extend(tty_docker_flags())
+
+    # Dev mode: mount host src/ into container (requires editable install in image).
     if dev:
         src_dir = _resolve_dev_src()
         cmd.extend(["-v", f"{src_dir}:/workspace/src"])
         logger.info("Dev mode: mounting %s -> /workspace/src", src_dir)
 
-    # Extra volumes from config
+    # Extra volumes / env vars from config
     for vol in docker_cfg.volumes:
         cmd.extend(["-v", vol])
-
-    # Extra env vars
     for env_str in docker_cfg.env:
         cmd.extend(["-e", env_str])
+
+    # Forward licence acceptance into the container so ``ensure_license`` can skip the prompt.
+    if accept_license:
+        cmd.extend(["-e", f"VLA_EVAL_ACCEPTED_LICENSES={','.join(accept_license)}"])
 
     # Resource allocation
     if num_shards is not None:
@@ -303,6 +254,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             dev=getattr(args, "dev", False),
             shard_id=shard_id,
             num_shards=num_shards,
+            accept_license=getattr(args, "accept_license", None),
         )
         return
 
@@ -771,6 +723,17 @@ execution flow:
         "--no-docker", action="store_true", help="Run directly without Docker (for dev/debug or inside-container use)"
     )
     run_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompts (e.g. docker pull)")
+    run_parser.add_argument(
+        "--accept-license",
+        action="append",
+        default=[],
+        metavar="ID",
+        help=(
+            "Accept a benchmark licence non-interactively (repeatable). Forwarded into the eval "
+            "container as VLA_EVAL_ACCEPTED_LICENSES so vla_eval.dirs.ensure_license skips the "
+            "stdin prompt. Example: --accept-license behavior-dataset-tos."
+        ),
+    )
     run_parser.add_argument(
         "--shard-id", type=int, default=None, help="Shard index (0-based). Must use with --num-shards."
     )

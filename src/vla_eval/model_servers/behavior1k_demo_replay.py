@@ -13,17 +13,14 @@
 """BEHAVIOR-1K demo-replay model server.
 
 Reads a recorded human-teleoperation demo (LeRobot v2.1 parquet from the
-``behavior-1k/2025-challenge-demos`` HuggingFace dataset) and returns
-the recorded action at step ``t`` for each model-server query.  No
-learned policy involved — purely action playback.
+``behavior-1k/2025-challenge-demos`` HuggingFace dataset) and returns the recorded action at step
+``t`` for each model-server query.  No learned policy involved — purely action playback.
 
-Why this exists: a zero-action baseline only proves the harness wires
-up to the env.  Demo replay additionally proves that a *succeeding*
-trajectory remains succeeding under our env build — i.e. our reset
-path, our action format, and our success detector are all
-trajectory-faithful.  If demo replay fails, that's a direct signal
-the env diverged from the recording (physics determinism, action
-encoding, instance state, ...).
+Why this exists: a zero-action baseline only proves the harness wires up to the env.  Demo replay
+additionally proves that a *succeeding* trajectory remains succeeding under our env build — i.e.
+our reset path, our action format, and our success detector are all trajectory-faithful.  If demo
+replay fails, that's a direct signal the env diverged from the recording (physics determinism,
+action encoding, instance state, ...).
 
 Usage:
 
@@ -80,10 +77,9 @@ class Behavior1KDemoReplayModelServer(PredictModelServer):
         self.on_overrun = on_overrun
 
         self._actions: np.ndarray | None = None
-        # ``PredictModelServer`` may serve concurrent benchmark sessions
-        # (one connection per shard), so the step cursor has to be
-        # keyed per (session, episode).  ``on_episode_start`` /
-        # ``on_episode_end`` keep the dict bounded.
+        # ``PredictModelServer`` can serve concurrent benchmark sessions (one connection per shard),
+        # so the step cursor is keyed per (session, episode).  ``on_episode_start`` / ``on_episode_end``
+        # keep the dict bounded.
         self._step_idx: dict[tuple[str, str], int] = {}
 
     def _load(self) -> np.ndarray:
@@ -91,8 +87,8 @@ class Behavior1KDemoReplayModelServer(PredictModelServer):
             return self._actions
         import pandas as pd
 
-        # ``columns=["action"]`` skips embedded image/state columns —
-        # LeRobot parquets can be multi-GB once those load.
+        # ``columns=["action"]`` skips embedded image/state columns — LeRobot parquets are multi-GB
+        # once those load.
         df = pd.read_parquet(self.demo_path, columns=["action"])
         actions = np.stack([np.asarray(a, dtype=np.float32) for a in df["action"]])
         if actions.ndim != 2 or actions.shape[1] != self.action_dim:
@@ -121,9 +117,16 @@ class Behavior1KDemoReplayModelServer(PredictModelServer):
         await super().on_episode_end(result, ctx)
 
     def predict(self, obs: Observation, ctx: SessionContext | None = None) -> Action:
+        if ctx is None:
+            raise RuntimeError("Behavior1KDemoReplayModelServer.predict requires a SessionContext")
         actions = self._load()
-        key = (ctx.session_id, ctx.episode_id) if ctx is not None else ("", "")
-        idx = self._step_idx.get(key, 0)
+        key = (ctx.session_id, ctx.episode_id)
+        if key not in self._step_idx:
+            raise RuntimeError(
+                f"predict() called before on_episode_start for session={ctx.session_id} "
+                f"episode={ctx.episode_id}; the harness must send EPISODE_START first."
+            )
+        idx = self._step_idx[key]
         self._step_idx[key] = idx + 1
 
         if idx < len(actions):

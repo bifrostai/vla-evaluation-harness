@@ -38,7 +38,6 @@ from __future__ import annotations
 import logging
 import os
 import pathlib
-import subprocess
 import sys
 from typing import Any
 
@@ -51,12 +50,11 @@ from vla_eval.types import Action, Observation
 
 logger = logging.getLogger(__name__)
 
-# The RoboMME fork of OpenPI ships both ``openpi`` and ``mme_vla_suite``
-# under ``src/``, but hatchling only builds the ``openpi`` wheel.  We
-# shallow-clone the repo once at runtime so ``mme_vla_suite`` is importable.
+# The RoboMME fork of OpenPI ships both ``openpi`` and ``mme_vla_suite`` under ``src/``, but
+# hatchling only builds the ``openpi`` wheel.  Shallow-clone the repo at runtime so
+# ``mme_vla_suite`` is importable.
 _MME_VLA_REPO = "https://github.com/RoboMME/robomme_policy_learning.git"
 _MME_VLA_REV = "main"
-_MME_VLA_CACHE = os.path.join(os.environ.get("XDG_CACHE_HOME", os.path.expanduser("~/.cache")), "vla-eval/mme-vla")
 
 
 def _ensure_mme_vla_suite() -> None:
@@ -68,13 +66,10 @@ def _ensure_mme_vla_suite() -> None:
     except ImportError:
         pass
 
-    src_dir = os.path.join(_MME_VLA_CACHE, "src")
-    if not os.path.isdir(os.path.join(src_dir, "mme_vla_suite")):
-        logger.info("Cloning mme_vla_suite from %s …", _MME_VLA_REPO)
-        subprocess.check_call(
-            ["git", "clone", "--depth", "1", "--branch", _MME_VLA_REV, _MME_VLA_REPO, _MME_VLA_CACHE],
-        )
+    from vla_eval.dirs import ensure_git_clone
 
+    clone = ensure_git_clone(name="mme-vla", repo=_MME_VLA_REPO, rev=_MME_VLA_REV, shallow=True)
+    src_dir = str(clone / "src")
     # Append (not insert) so the installed openpi wheel still takes priority
     sys.path.append(src_dir)
     import mme_vla_suite  # noqa: F401, F811
@@ -85,21 +80,19 @@ def _ensure_mme_vla_suite() -> None:
 class MmeVlaModelServer(PredictModelServer):
     """MME-VLA suite model server for RoboMME evaluation.
 
-    Handles both the pi0.5 baseline (no memory) and all 14
-    memory-augmented variants from the MME-VLA paper.
+    Handles both the pi0.5 baseline (no memory) and all 14 memory-augmented variants from the
+    MME-VLA paper.
 
     Args:
-        config_name: MME-VLA config — ``"pi05_baseline"`` or
-            ``"mme_vla_suite"`` (memory variants).
-        checkpoint: HuggingFace model ID or local path.  For the
-            multi-variant repo, use ``Yinpei/mme_vla_suite/subdir``.
-        use_history: Enable memory lifecycle (reset + add_buffer).
-            Must be ``True`` for all memory-augmented variants.
+        config_name: MME-VLA config — ``"pi05_baseline"`` or ``"mme_vla_suite"`` (memory variants).
+        checkpoint: HuggingFace model ID or local path.  For the multi-variant repo, use
+            ``Yinpei/mme_vla_suite/subdir``.
+        use_history: Enable memory lifecycle (reset + add_buffer).  Must be ``True`` for all
+            memory-augmented variants.
         image_key: Key for the front camera in the OpenPI obs dict.
         wrist_image_key: Key for the wrist camera (``None`` to disable).
         state_key: Key for proprioceptive state (``None`` to disable).
-        state_dim: Truncate benchmark state to this dimension.
-            RoboMME sends 9D; models expect 8D.
+        state_dim: Truncate benchmark state to this dimension.  RoboMME sends 9D; models expect 8D.
         image_resolution: Resize images to this square resolution.
         chunk_size: Number of actions per inference call.
         action_ensemble: Ensemble strategy for overlapping chunks.
