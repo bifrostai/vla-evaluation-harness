@@ -27,12 +27,14 @@ from __future__ import annotations
 
 import logging
 import time
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from anyio.to_thread import run_sync as _run_in_thread
 
 from vla_eval.benchmarks.base import StepBenchmark, StepResult
+from vla_eval.dirs import ensure_license
 from vla_eval.specs import IMAGE_RGB, LANGUAGE, RAW, DimSpec
 from vla_eval.types import Action, EpisodeResult, Observation, Task
 
@@ -233,6 +235,7 @@ class Behavior1KBenchmark(StepBenchmark):
         with macros.unlocked():
             macros.robots.manipulation_robot.GRASP_WINDOW = 0.75
 
+        self._ensure_assets(Path(gm.DATA_PATH))
         self._available_tasks = load_available_tasks()
         missing = [t for t in self._task_names if t not in self._available_tasks]
         if missing:
@@ -240,6 +243,33 @@ class Behavior1KBenchmark(StepBenchmark):
                 f"BEHAVIOR-1K tasks not available in installed dataset: {missing}. "
                 "Check that the 2025-challenge-task-instances data is mounted at gm.DATA_PATH."
             )
+
+    def _ensure_assets(self, data_path: Path) -> None:
+        """Make sure BEHAVIOR-1K scene + task data is available at ``data_path``.
+
+        First call on a fresh host prompts for licence acceptance and
+        runs OmniGibson's three ``download_*`` helpers.  Idempotent: a
+        populated directory short-circuits via the marker check.
+        """
+        marker = data_path / "2025-challenge-task-instances"
+        if marker.exists():
+            return
+        ensure_license(
+            "behavior-dataset-tos",
+            url="https://behavior.stanford.edu/dataset",
+            description="BEHAVIOR Dataset ToS (one-time, ~35 GiB download).",
+        )
+        data_path.mkdir(parents=True, exist_ok=True)
+        from omnigibson.utils.asset_utils import (
+            download_2025_challenge_task_instances,
+            download_behavior_1k_assets,
+            download_omnigibson_robot_assets,
+        )
+
+        logger.info("Fetching BEHAVIOR-1K assets into %s", data_path)
+        download_omnigibson_robot_assets()
+        download_behavior_1k_assets(accept_license=True)
+        download_2025_challenge_task_instances()
 
     def _make_env(self, task_name: str) -> Any:
         """Build a fresh OmniGibson env for *task_name*."""

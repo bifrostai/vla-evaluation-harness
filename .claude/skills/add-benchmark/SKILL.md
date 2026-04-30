@@ -121,6 +121,34 @@ class MyBenchmark(StepBenchmark):
 - **Image preprocessing**: Handle non-standard images (flipped, wrong resolution) in `make_obs()`.
 - **EGL headless rendering**: Add `os.environ.setdefault("PYOPENGL_PLATFORM", "egl")` at module top if the sim uses OpenGL.
 
+### Optional: external dataset acquisition
+
+If the benchmark needs licence-restricted scene/data files that can't ship in the docker image (e.g. ToS-gated downloads), do the lazy fetch inside `_init_*()` / `reset()` using the shared primitives in `vla_eval.dirs`:
+
+```python
+from vla_eval.dirs import assets_cache, ensure_license
+
+def _ensure_assets(self, data_path: Path) -> None:
+    if (data_path / "ready_marker").exists():
+        return
+    ensure_license(
+        "my-dataset-tos",                # also accepts via --accept-license <id>
+        url="https://example.com/license",
+        description="My benchmark dataset ToS (~N GiB).",
+    )
+    data_path.mkdir(parents=True, exist_ok=True)
+    # ... download into data_path with whatever helper your sim provides
+```
+
+`ensure_license` reads stdin in interactive contexts and falls back to the `VLA_EVAL_ACCEPTED_LICENSES` env var (forwarded by `vla-eval run --accept-license <id>`). The eval YAML's volume mount should resolve the host path with the same XDG-aware precedence so `vla-eval run` and the in-container fetch agree:
+
+```yaml
+volumes:
+  - "${oc.env:VLA_EVAL_ASSETS_CACHE,${oc.env:VLA_EVAL_HOME,${oc.env:XDG_CACHE_HOME,${oc.env:HOME}/.cache}/vla-eval}/assets}/<bench>:<container_data_path>"
+```
+
+Reference: `Behavior1KBenchmark._ensure_assets()` in `benchmarks/behavior1k/benchmark.py`.
+
 ## 3. Create config YAML
 
 Create `configs/<name>_eval.yaml`:

@@ -110,7 +110,7 @@ test set.
 - **Max steps:** 5000 default (or 2× human demo length when configured;
   see `learning/eval.py` for the dataset-driven path).
 
-## How to Reproduce (zero-action baseline, 1 task, 100 steps)
+## How to Reproduce (zero-action baseline, 1 task, 2000 step cap)
 
 ```bash
 # 1. Build the image (heavy: ~17 min, 23.5 GB).
@@ -118,38 +118,30 @@ test set.
 #    (NVIDIA Omniverse EULA — https://docs.omniverse.nvidia.com/eula/).
 docker/build.sh behavior1k --accept-license behavior1k
 
-# 2. Download the dataset (~35 GiB).  Mount-target inside the image
-#    is /app/BEHAVIOR-1K/datasets — that's where gm.DATA_PATH points.
-mkdir -p /path/to/og_data
-docker run --rm --gpus all \
-  -e OMNI_KIT_ACCEPT_EULA=YES \
-  -v /path/to/og_data:/app/BEHAVIOR-1K/datasets \
-  --entrypoint conda \
-  ghcr.io/allenai/vla-evaluation-harness/behavior1k:latest \
-  run --no-capture-output -n behavior python -c "
-from omnigibson.utils.asset_utils import (
-    download_omnigibson_robot_assets,
-    download_behavior_1k_assets,
-    download_2025_challenge_task_instances,
-)
-download_omnigibson_robot_assets()
-download_behavior_1k_assets(accept_license=True)
-download_2025_challenge_task_instances()
-"
-
-# 3. Start the zero-action baseline server.
+# 2. Start the zero-action baseline server.
 uv run --script src/vla_eval/model_servers/behavior1k_baseline.py \
     --port 8765 --host 0.0.0.0 &
 
-# 4. Run.  --gpus 0 pins the container to a single A100; multi-GPU
-#    triggers Isaac Sim's "Multiple ICDs" instability.
+# 3. Run.  First invocation prompts on stdin to accept the BEHAVIOR
+#    Dataset ToS and then downloads ~35 GiB of OmniGibson scene + task
+#    data into ``~/.cache/vla-eval/assets/behavior1k`` (or wherever
+#    ``$VLA_EVAL_ASSETS_CACHE`` / ``$VLA_EVAL_HOME`` / ``$XDG_CACHE_HOME``
+#    point — see vla_eval.dirs).  Subsequent runs reuse the cache.
+#    --gpus 0 pins the container to a single A100; multi-GPU triggers
+#    Isaac Sim's "Multiple ICDs" instability.
 uv run vla-eval run -c configs/behavior1k_eval.yaml \
     --server-url ws://127.0.0.1:8765 \
     --output-dir results/behavior1k_baseline \
+    --accept-license behavior-dataset-tos \
     --gpus 0 --yes
 ```
 
-Edit `configs/behavior1k_eval.yaml` `volumes` to point at your dataset path.
+Set ``VLA_EVAL_ASSETS_CACHE=/fast/ssd`` (or ``$VLA_EVAL_HOME``,
+``$XDG_CACHE_HOME``) to redirect the asset cache to a faster disk; the
+config volume picks the same precedence up automatically. Use the
+``--accept-license`` flag (or set ``VLA_EVAL_ACCEPTED_LICENSES``) for
+non-interactive contexts (CI, sharded runs) where the stdin prompt
+can't be answered.
 
 ## What Trained-VLA Reproduction Still Needs
 

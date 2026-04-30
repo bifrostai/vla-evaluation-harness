@@ -108,6 +108,7 @@ def _run_via_docker(
     dev: bool = False,
     shard_id: int | None = None,
     num_shards: int | None = None,
+    accept_license: list[str] | None = None,
 ) -> None:
     """Execute the evaluation inside a Docker container."""
     import shutil
@@ -159,6 +160,15 @@ def _run_via_docker(
     ]
     # fmt: on
 
+    # Attach stdin (and optionally a TTY) so license prompts inside the
+    # container can read from the user's terminal.  Pure non-interactive
+    # contexts (CI, sharded runs, ``nohup``) get neither flag, and the
+    # in-container ``ensure_license`` falls back to its env-var path.
+    if sys.stdin.isatty() and sys.stdout.isatty():
+        cmd.extend(["-i", "-t"])
+    elif sys.stdin.isatty():
+        cmd.append("-i")
+
     # Dev mode: mount host src/ into container (requires editable install in image)
     if dev:
         src_dir = _resolve_dev_src()
@@ -172,6 +182,11 @@ def _run_via_docker(
     # Extra env vars
     for env_str in docker_cfg.env:
         cmd.extend(["-e", env_str])
+
+    # Forward licence acceptance into the container so benchmarks that
+    # call ``vla_eval.dirs.ensure_license`` can skip the stdin prompt.
+    if accept_license:
+        cmd.extend(["-e", f"VLA_EVAL_ACCEPTED_LICENSES={','.join(accept_license)}"])
 
     # Resource allocation
     if num_shards is not None:
@@ -251,6 +266,7 @@ def cmd_run(args: argparse.Namespace) -> None:
             dev=getattr(args, "dev", False),
             shard_id=shard_id,
             num_shards=num_shards,
+            accept_license=getattr(args, "accept_license", None),
         )
         return
 
@@ -719,6 +735,17 @@ execution flow:
         "--no-docker", action="store_true", help="Run directly without Docker (for dev/debug or inside-container use)"
     )
     run_parser.add_argument("--yes", "-y", action="store_true", help="Skip confirmation prompts (e.g. docker pull)")
+    run_parser.add_argument(
+        "--accept-license",
+        action="append",
+        default=[],
+        metavar="ID",
+        help=(
+            "Accept a benchmark licence non-interactively (repeatable). Forwarded into the eval "
+            "container as VLA_EVAL_ACCEPTED_LICENSES so vla_eval.dirs.ensure_license skips the "
+            "stdin prompt. Example: --accept-license behavior-dataset-tos."
+        ),
+    )
     run_parser.add_argument(
         "--shard-id", type=int, default=None, help="Shard index (0-based). Must use with --num-shards."
     )
