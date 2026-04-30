@@ -9,7 +9,7 @@
 
 | | |
 |:--|:--|
-| **Benchmarks** | [![LIBERO](https://img.shields.io/badge/LIBERO-✓-teal)](configs/libero_all.yaml) [![SimplerEnv](https://img.shields.io/badge/SimplerEnv-✓-teal)](configs/simpler_all_tasks.yaml) [![CALVIN](https://img.shields.io/badge/CALVIN-✓-teal)](configs/calvin_eval.yaml) [![ManiSkill2](https://img.shields.io/badge/ManiSkill2-◇-blue)](configs/maniskill2_eval.yaml) [![LIBERO-Pro](https://img.shields.io/badge/LIBERO--Pro-◇-blue)](configs/libero_pro_eval.yaml) [![LIBERO-Plus](https://img.shields.io/badge/LIBERO--Plus-✓-teal)](configs/libero_plus_spatial.yaml) [![RoboCasa](https://img.shields.io/badge/RoboCasa-◇-blue)](configs/robocasa_eval.yaml) [![VLABench](https://img.shields.io/badge/VLABench-◇-blue)](configs/vlabench_eval.yaml) [![MIKASA-Robo](https://img.shields.io/badge/MIKASA--Robo-◇-blue)](configs/mikasa_eval.yaml) [![RoboTwin](https://img.shields.io/badge/RoboTwin-◇-blue)](configs/robotwin_eval.yaml) [![RLBench](https://img.shields.io/badge/RLBench-◇-blue)](configs/rlbench_eval.yaml) [![RoboCerebra](https://img.shields.io/badge/RoboCerebra-◇-blue)](configs/robocerebra_eval.yaml) [![LIBERO-Mem](https://img.shields.io/badge/LIBERO--Mem-◇-blue)](configs/libero_mem.yaml) ![BEHAVIOR-1K](https://img.shields.io/badge/BEHAVIOR--1K-·-lightgrey) [![Kinetix](https://img.shields.io/badge/Kinetix-◇-blue)](configs/kinetix_eval.yaml) [![RoboMME](https://img.shields.io/badge/RoboMME-✓-teal)](configs/robomme_eval.yaml) [![MolmoSpaces-Bench](https://img.shields.io/badge/MolmoSpaces--Bench-✓-teal)](configs/molmospaces_pick_and_place.yaml) ![FurnitureBench](https://img.shields.io/badge/FurnitureBench-·-lightgrey) |
+| **Benchmarks** | [![LIBERO](https://img.shields.io/badge/LIBERO-✓-teal)](configs/libero_all.yaml) [![SimplerEnv](https://img.shields.io/badge/SimplerEnv-✓-teal)](configs/simpler_all_tasks.yaml) [![CALVIN](https://img.shields.io/badge/CALVIN-✓-teal)](configs/calvin_eval.yaml) [![ManiSkill2](https://img.shields.io/badge/ManiSkill2-◇-blue)](configs/maniskill2_eval.yaml) [![LIBERO-Pro](https://img.shields.io/badge/LIBERO--Pro-◇-blue)](configs/libero_pro_eval.yaml) [![LIBERO-Plus](https://img.shields.io/badge/LIBERO--Plus-✓-teal)](configs/libero_plus_spatial.yaml) [![RoboCasa](https://img.shields.io/badge/RoboCasa-◇-blue)](configs/robocasa_eval.yaml) [![VLABench](https://img.shields.io/badge/VLABench-◇-blue)](configs/vlabench_eval.yaml) [![MIKASA-Robo](https://img.shields.io/badge/MIKASA--Robo-◇-blue)](configs/mikasa_eval.yaml) [![RoboTwin](https://img.shields.io/badge/RoboTwin-◇-blue)](configs/robotwin_eval.yaml) [![RLBench](https://img.shields.io/badge/RLBench-◇-blue)](configs/rlbench_eval.yaml) [![RoboCerebra](https://img.shields.io/badge/RoboCerebra-◇-blue)](configs/robocerebra_eval.yaml) [![LIBERO-Mem](https://img.shields.io/badge/LIBERO--Mem-◇-blue)](configs/libero_mem.yaml) [![BEHAVIOR-1K](https://img.shields.io/badge/BEHAVIOR--1K-◇-blue)](configs/behavior1k_eval.yaml) [![Kinetix](https://img.shields.io/badge/Kinetix-◇-blue)](configs/kinetix_eval.yaml) [![RoboMME](https://img.shields.io/badge/RoboMME-✓-teal)](configs/robomme_eval.yaml) [![MolmoSpaces-Bench](https://img.shields.io/badge/MolmoSpaces--Bench-✓-teal)](configs/molmospaces_pick_and_place.yaml) ![FurnitureBench](https://img.shields.io/badge/FurnitureBench-·-lightgrey) |
 | **Models (official)** | [![OpenVLA](https://img.shields.io/badge/OpenVLA-✓-8B5CF6)](configs/model_servers/openvla.yaml) [![π₀](https://img.shields.io/badge/π₀-✓-8B5CF6)](configs/model_servers/pi0_libero.yaml) [![π₀-FAST](https://img.shields.io/badge/π₀--FAST-✓-8B5CF6)](configs/model_servers/pi0_libero.yaml) [![GR00T N1.6](https://img.shields.io/badge/GR00T_N1.6-✓-8B5CF6)](configs/model_servers/groot.yaml) [![OFT](https://img.shields.io/badge/OFT-✓-8B5CF6)](configs/model_servers/oft_libero.yaml) [![X-VLA](https://img.shields.io/badge/X--VLA-✓-8B5CF6)](configs/model_servers/xvla_libero.yaml) [![CogACT](https://img.shields.io/badge/CogACT-◇-blue)](configs/model_servers/cogact.yaml) [![RTC](https://img.shields.io/badge/RTC-◇-blue)](configs/model_servers/rtc_kinetix.yaml) [![VLANeXt](https://img.shields.io/badge/VLANeXt-✓-8B5CF6)](configs/model_servers/vlanext/libero_spatial.yaml) [![MolmoBot](https://img.shields.io/badge/MolmoBot-✓-8B5CF6)](configs/model_servers/molmobot/droid.yaml) ![MemVLA](https://img.shields.io/badge/MemVLA-·-lightgrey) |
 | **Models ([dexbotic](https://github.com/dexmal/dexbotic))** ![stars](https://img.shields.io/github/stars/dexmal/dexbotic?style=social) | [![DB-CogACT](https://img.shields.io/badge/DB--CogACT-✓-8B5CF6)](configs/model_servers/dexbotic_cogact_libero.yaml) |
 | **Models ([starVLA](https://github.com/starVLA/starVLA))** ![stars](https://img.shields.io/github/stars/starVLA/starVLA?style=social) | [![QwenGR00T](https://img.shields.io/badge/QwenGR00T-✓-8B5CF6)](configs/model_servers/starvla_groot_simpler.yaml) [![QwenOFT](https://img.shields.io/badge/QwenOFT-✓-8B5CF6)](configs/model_servers/starvla_oft_simpler.yaml) [![QwenPI](https://img.shields.io/badge/QwenPI-◇-blue)](configs/model_servers/starvla_pi_simpler.yaml) [![QwenFAST](https://img.shields.io/badge/QwenFAST-✓-8B5CF6)](configs/model_servers/starvla_fast_simpler.yaml) |
@@ -150,7 +150,7 @@ All benchmark environments are packaged as standalone Docker images based on `ba
 | Image | Size | Benchmark | Python | Base |
 |-------|------|-----------|--------|------|
 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) | 3.3 GB | — | — | `nvidia/cuda:12.1.1-runtime-ubuntu22.04` |
-| [`rlbench`](https://ghcr.io/allenai/vla-evaluation-harness/rlbench) | 4.7 GB | RLBench | 3.8 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
+| `rlbench` 🔒 | 4.7 GB | RLBench | 3.8 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
 | [`simpler`](https://ghcr.io/allenai/vla-evaluation-harness/simpler) | 4.9 GB | SimplerEnv | 3.10 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
 | [`libero`](https://ghcr.io/allenai/vla-evaluation-harness/libero) | 6.0 GB | LIBERO | 3.8 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
 | [`libero-pro`](https://ghcr.io/allenai/vla-evaluation-harness/libero-pro) | 6.2 GB | LIBERO-Pro | 3.8 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
@@ -163,9 +163,12 @@ All benchmark environments are packaged as standalone Docker images based on `ba
 | [`libero-plus`](https://ghcr.io/allenai/vla-evaluation-harness/libero-plus) | 14.8 GB | LIBERO-Plus | 3.8 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
 | [`robomme`](https://ghcr.io/allenai/vla-evaluation-harness/robomme) | 17.0 GB | RoboMME | 3.11 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
 | [`vlabench`](https://ghcr.io/allenai/vla-evaluation-harness/vlabench) | 17.7 GB | VLABench | 3.10 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
+| `behavior1k` 🔒 | 23.6 GB | BEHAVIOR-1K | 3.10 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
 | [`robotwin`](https://ghcr.io/allenai/vla-evaluation-harness/robotwin) | 28.6 GB | RoboTwin 2.0 | 3.10 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
 | [`molmospaces`](https://ghcr.io/allenai/vla-evaluation-harness/molmospaces) | 31.4 GB | MolmoSpaces-Bench | 3.11 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
 | [`robocasa`](https://ghcr.io/allenai/vla-evaluation-harness/robocasa) | 35.6 GB | RoboCasa | 3.11 | [`base`](https://ghcr.io/allenai/vla-evaluation-harness/base) |
+
+<sub>🔒 = build-locally only; the Dockerfile gates the build behind a licence opt-in (`docker/build.sh <name> --accept-license <name>`) and the image isn't published to ghcr.io.</sub>
 
 **Pull** (recommended):
 
@@ -176,8 +179,9 @@ docker pull ghcr.io/allenai/vla-evaluation-harness/libero:latest
 **Build locally** (see [docker/build.sh](docker/build.sh)):
 
 ```bash
-docker/build.sh          # build all (base first, then benchmarks)
-docker/build.sh libero   # build one
+docker/build.sh                                           # build all (gated images skipped)
+docker/build.sh libero                                    # build one
+docker/build.sh behavior1k --accept-license behavior1k    # build a gated image
 ```
 
 ---
