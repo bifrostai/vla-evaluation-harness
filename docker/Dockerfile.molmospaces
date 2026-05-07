@@ -10,7 +10,7 @@ ARG BASE_IMAGE=ghcr.io/allenai/vla-evaluation-harness/base:latest
 FROM ${BASE_IMAGE}
 
 # ── Conda environment (molmo-spaces requires Python 3.11) ─────────────
-RUN conda create -n molmospaces python=3.11 -y && conda clean -afy
+RUN conda create -n molmospaces python=3.11 pip -y && conda clean -afy
 SHELL ["conda", "run", "-n", "molmospaces", "/bin/bash", "-c"]
 
 # ── PyTorch with CUDA 12.1 (bfloat16 inference for policy server smoke tests) ─

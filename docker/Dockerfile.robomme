@@ -4,7 +4,7 @@ ARG BASE_IMAGE=ghcr.io/allenai/vla-evaluation-harness/base:latest
 FROM ${BASE_IMAGE}
 
 # ── Conda environment (Python 3.11 per RoboMME requirement) ──────────────
-RUN conda create -n robomme python=3.11 -y && conda clean -afy
+RUN conda create -n robomme python=3.11 pip -y && conda clean -afy
 
 SHELL ["conda", "run", "-n", "robomme", "/bin/bash", "-c"]
 

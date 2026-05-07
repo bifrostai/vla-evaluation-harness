@@ -2,7 +2,7 @@ ARG BASE_IMAGE=ghcr.io/allenai/vla-evaluation-harness/base:latest
 FROM ${BASE_IMAGE}
 
 # ── Conda environment ──────────────────────────────────────────────
-RUN conda create -n libero python=3.8 -y && conda clean -afy
+RUN conda create -n libero python=3.8 pip -y && conda clean -afy
 SHELL ["conda", "run", "-n", "libero", "/bin/bash", "-c"]
 
 # ── System deps for LIBERO-Plus rendering (ImageMagick/Wand textures) ──

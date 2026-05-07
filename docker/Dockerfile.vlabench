@@ -6,7 +6,7 @@ FROM ${BASE_IMAGE}
 ENV VLABENCH_ROOT=/app/VLABench/VLABench
 
 # Create conda env with Python 3.10
-RUN conda create -n vlabench python=3.10 -y && conda clean -afy
+RUN conda create -n vlabench python=3.10 pip -y && conda clean -afy
 
 SHELL ["conda", "run", "-n", "vlabench", "/bin/bash", "-c"]
 

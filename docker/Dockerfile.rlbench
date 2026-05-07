@@ -46,7 +46,7 @@ RUN mv ${COPPELIASIM_ROOT}/libsimExtOpenGL3Renderer.so \
        ${COPPELIASIM_ROOT}/libsimExtOpenGL3Renderer.so.disabled
 
 # ── Conda environment (Python 3.8 required by PyRep/RLBench) ──────
-RUN conda create -y -n rlbench python=3.8 && conda clean -afy
+RUN conda create -y -n rlbench python=3.8 pip && conda clean -afy
 SHELL ["conda", "run", "-n", "rlbench", "/bin/bash", "-c"]
 
 # ── PyRep (from source) ───────────────────────────────────────────
