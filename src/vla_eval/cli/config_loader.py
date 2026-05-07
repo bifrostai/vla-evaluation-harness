@@ -35,7 +35,4 @@ def load_config(path: str) -> dict[str, Any]:
     container = OmegaConf.to_container(merged, resolve=True)
     if not isinstance(container, dict):
         raise TypeError(f"expected dict from OmegaConf.to_container, got {type(container).__name__}")
-    # OmegaConf's return type is dict[Unknown, Unknown]; YAML mappings
-    # are dict[str, Any] in practice. Cast so the public signature
-    # holds.
-    return cast(dict[str, Any], container)
+    return cast("dict[str, Any]", container)
