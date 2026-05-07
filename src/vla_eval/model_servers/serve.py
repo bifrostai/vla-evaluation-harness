@@ -366,7 +366,7 @@ def _resolve_cli_type(
         return (str, False, False)
 
     # list/dict types: accept JSON string on CLI
-    if origin is list or annotation is list:
+    if origin in (list, dict) or annotation in (list, dict):
         import json
 
         return (json.loads, False, False)
